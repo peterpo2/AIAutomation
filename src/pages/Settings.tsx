@@ -47,13 +47,17 @@ export default function Settings() {
     }
   };
 
-  const handleDropboxToggle = () => {
+  const handleDropboxToggle = async () => {
     if (dropboxConnected) {
       disconnectDropbox();
       setDropboxConnected(false);
     } else {
-      const authUrl = getAuthUrl();
-      window.location.href = authUrl;
+      try {
+        const authUrl = await getAuthUrl();
+        window.location.href = authUrl;
+      } catch (error) {
+        console.error('Error starting Dropbox authentication:', error);
+      }
     }
   };
 

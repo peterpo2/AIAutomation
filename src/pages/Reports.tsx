@@ -164,7 +164,7 @@ export default function Reports() {
               </tr>
             </thead>
             <tbody>
-              {performanceData.map((video, index) => {
+              {performanceData.map((video) => {
                 const engagement = ((video.likes + video.comments + video.shares) / video.views * 100).toFixed(1);
                 return (
                   <tr key={video.video} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">

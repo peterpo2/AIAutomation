@@ -1,35 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Video, Save, Trash2, Edit2 } from 'lucide-react';
 import { supabase, VideoMetadata } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import type { DropboxFile } from '../lib/dropbox';
 
 export default function Uploads() {
   const { user } = useAuth();
   const [videos, setVideos] = useState<VideoMetadata[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadVideos();
-    const stored = localStorage.getItem('selected_videos');
-    if (stored) {
-      const selected = JSON.parse(stored);
-      const newVideos = selected.map((file: any) => ({
-        file_path: file.path,
-        file_name: file.name,
-        file_size: file.size,
-        dropbox_id: file.id,
-        brand: '',
-        caption: '',
-        category: '',
-        status: 'pending' as const,
-      }));
-      setVideos((prev) => [...prev, ...newVideos]);
-      localStorage.removeItem('selected_videos');
-    }
-  }, []);
-
-  const loadVideos = async () => {
+  const loadVideos = useCallback(async () => {
     if (!user) return;
     const { data, error } = await supabase
       .from('videos')
@@ -40,7 +21,36 @@ export default function Uploads() {
     if (data && !error) {
       setVideos(data);
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    void loadVideos();
+    const stored = localStorage.getItem('selected_videos');
+    if (stored) {
+      try {
+        const selected: DropboxFile[] = JSON.parse(stored);
+        const newVideos = selected.map((file) => ({
+          file_path: file.path,
+          file_name: file.name,
+          file_size: file.size,
+          dropbox_id: file.id,
+          brand: '',
+          caption: '',
+          category: '',
+          status: 'pending' as const,
+        }));
+        setVideos((prev) => {
+          const existingIds = new Set(prev.map((video) => video.dropbox_id));
+          const uniqueVideos = newVideos.filter((video) => !existingIds.has(video.dropbox_id));
+          return [...prev, ...uniqueVideos];
+        });
+      } catch (error) {
+        console.error('Failed to process selected Dropbox videos', error);
+      } finally {
+        localStorage.removeItem('selected_videos');
+      }
+    }
+  }, [loadVideos]);
 
   const handleSave = async (video: VideoMetadata, index: number) => {
     if (!user) return;

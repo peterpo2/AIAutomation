@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
@@ -24,84 +24,93 @@ export default function DropboxPage() {
   const navigate = useNavigate();
   const [connected, setConnected] = useState(isDropboxConnected());
   const [files, setFiles] = useState<DropboxFile[]>([]);
-  const [currentPath, setCurrentPath] = useState('');
   const [pathStack, setPathStack] = useState<string[]>(['']);
   const [loading, setLoading] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   const [thumbnails, setThumbnails] = useState<Map<string, string>>(new Map());
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  useEffect(() => {
-    const code = searchParams.get('code');
-    if (code) {
-      handleAuthCallback(code).then(() => {
-        setConnected(true);
-        navigate('/dropbox', { replace: true });
-        loadFiles('');
-      });
-    } else if (connected) {
-      loadFiles('');
-    }
-  }, [searchParams, connected, navigate]);
+  const isVideoFile = useCallback((filename: string) => {
+    const videoExtensions = ['.mp4', '.mov', '.avi', '.mkv', '.webm'];
+    return videoExtensions.some((ext) => filename.toLowerCase().endsWith(ext));
+  }, []);
 
-  const loadFiles = async (path: string) => {
+  const loadFiles = useCallback(async (path: string) => {
     setLoading(true);
+    setErrorMessage(null);
     try {
       const fileList = await listFiles(path);
       setFiles(fileList);
-      setCurrentPath(path);
-
       fileList.forEach(async (file) => {
         if (!file.isFolder && isVideoFile(file.name)) {
           const thumb = await getThumbnail(file.path);
           if (thumb) {
-            setThumbnails((prev) => new Map(prev).set(file.path, thumb));
+            setThumbnails((prev) => {
+              const next = new Map(prev);
+              next.set(file.path, thumb);
+              return next;
+            });
           }
         }
       });
     } catch (error) {
       console.error('Error loading files:', error);
+      setErrorMessage('Unable to load Dropbox files. Please try again.');
     } finally {
       setLoading(false);
     }
-  };
+  }, [isVideoFile]);
 
-  const handleConnect = () => {
-    const authUrl = getAuthUrl();
-    window.location.href = authUrl;
+  useEffect(() => {
+    const code = searchParams.get('code');
+    if (code) {
+      (async () => {
+        try {
+          await handleAuthCallback(code);
+          setConnected(true);
+          navigate('/dropbox', { replace: true });
+          await loadFiles('');
+        } catch (error) {
+          console.error('Error completing Dropbox authentication:', error);
+          setErrorMessage(error instanceof Error ? error.message : 'Failed to connect to Dropbox.');
+        }
+      })();
+    } else if (connected) {
+      void loadFiles('');
+    }
+  }, [searchParams, connected, navigate, loadFiles]);
+
+  const handleConnect = async () => {
+    try {
+      const authUrl = await getAuthUrl();
+      window.location.href = authUrl;
+    } catch (error) {
+      console.error('Error starting Dropbox authentication:', error);
+      setErrorMessage('Could not initiate Dropbox authentication. Please try again.');
+    }
   };
 
   const openFolder = (path: string) => {
-    setPathStack([...pathStack, path]);
-    loadFiles(path);
-  };
-
-  const navigateUp = () => {
-    if (pathStack.length > 1) {
-      const newStack = pathStack.slice(0, -1);
-      setPathStack(newStack);
-      loadFiles(newStack[newStack.length - 1]);
-    }
+    setPathStack((prev) => [...prev, path]);
+    void loadFiles(path);
   };
 
   const navigateToPath = (index: number) => {
     const newStack = pathStack.slice(0, index + 1);
     setPathStack(newStack);
-    loadFiles(newStack[newStack.length - 1]);
+    void loadFiles(newStack[newStack.length - 1]);
   };
 
   const toggleFileSelection = (filePath: string) => {
-    const newSelected = new Set(selectedFiles);
-    if (newSelected.has(filePath)) {
-      newSelected.delete(filePath);
-    } else {
-      newSelected.add(filePath);
-    }
-    setSelectedFiles(newSelected);
-  };
-
-  const isVideoFile = (filename: string) => {
-    const videoExtensions = ['.mp4', '.mov', '.avi', '.mkv', '.webm'];
-    return videoExtensions.some((ext) => filename.toLowerCase().endsWith(ext));
+    setSelectedFiles((prev) => {
+      const updated = new Set(prev);
+      if (updated.has(filePath)) {
+        updated.delete(filePath);
+      } else {
+        updated.add(filePath);
+      }
+      return updated;
+    });
   };
 
   const saveToQueue = () => {
@@ -131,6 +140,9 @@ export default function DropboxPage() {
           >
             Connect to Dropbox
           </button>
+          {errorMessage && (
+            <p className="text-sm text-red-500 mt-4">{errorMessage}</p>
+          )}
         </motion.div>
       </div>
     );
@@ -138,6 +150,11 @@ export default function DropboxPage() {
 
   return (
     <div className="space-y-6">
+      {errorMessage && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+          {errorMessage}
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-800">Dropbox Files</h1>

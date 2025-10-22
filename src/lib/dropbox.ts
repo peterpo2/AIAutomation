@@ -1,21 +1,56 @@
 import { Dropbox, DropboxAuth } from 'dropbox';
+import type { files } from 'dropbox';
 
 const APP_KEY = import.meta.env.VITE_DROPBOX_APP_KEY;
+const CODE_VERIFIER_STORAGE_KEY = 'dropbox_code_verifier';
+
+type DropboxTokenResult = {
+  access_token: string;
+  refresh_token?: string;
+  expires_in?: number;
+  token_type?: string;
+  scope?: string;
+};
+
+type ThumbnailResult = files.FileMetadata & { fileBlob?: Blob };
 
 export const dropboxAuth = new DropboxAuth({ clientId: APP_KEY });
 
-export const getAuthUrl = () => {
+export const getAuthUrl = async (): Promise<string> => {
   const redirectUri = `${window.location.origin}/dropbox-callback`;
-  dropboxAuth.setCodeVerifier();
-  return dropboxAuth.getAuthenticationUrl(redirectUri, undefined, 'code', 'offline', undefined, undefined, true);
+
+  const authUrl = await dropboxAuth.getAuthenticationUrl(
+    redirectUri,
+    undefined,
+    'code',
+    'offline',
+    undefined,
+    undefined,
+    true,
+  );
+
+  const codeVerifier = dropboxAuth.getCodeVerifier();
+  if (codeVerifier) {
+    sessionStorage.setItem(CODE_VERIFIER_STORAGE_KEY, codeVerifier);
+  }
+
+  return authUrl.toString();
 };
 
 export const handleAuthCallback = async (code: string) => {
   const redirectUri = `${window.location.origin}/dropbox-callback`;
+
   try {
-    await dropboxAuth.setCodeVerifier();
+    const storedVerifier = sessionStorage.getItem(CODE_VERIFIER_STORAGE_KEY);
+    if (!storedVerifier) {
+      throw new Error('Missing Dropbox authorization state. Please restart the connection flow.');
+    }
+
+    dropboxAuth.setCodeVerifier(storedVerifier);
+    sessionStorage.removeItem(CODE_VERIFIER_STORAGE_KEY);
+
     const response = await dropboxAuth.getAccessTokenFromCode(redirectUri, code);
-    const accessToken = (response.result as any).access_token;
+    const { access_token: accessToken } = response.result as DropboxTokenResult;
     localStorage.setItem('dropbox_access_token', accessToken);
     return accessToken;
   } catch (error) {
@@ -32,6 +67,7 @@ export const getDropboxClient = (): Dropbox | null => {
 
 export const disconnectDropbox = () => {
   localStorage.removeItem('dropbox_access_token');
+  sessionStorage.removeItem(CODE_VERIFIER_STORAGE_KEY);
 };
 
 export const isDropboxConnected = (): boolean => {
@@ -53,14 +89,19 @@ export const listFiles = async (path: string = ''): Promise<DropboxFile[]> => {
 
   try {
     const response = await dbx.filesListFolder({ path });
-    const files: DropboxFile[] = response.result.entries.map((entry: any) => ({
+    const entries = response.result.entries.filter(
+      (entry): entry is files.FileMetadataReference | files.FolderMetadataReference =>
+        entry['.tag'] === 'file' || entry['.tag'] === 'folder',
+    );
+
+    const mappedFiles: DropboxFile[] = entries.map((entry) => ({
       name: entry.name,
-      path: entry.path_lower,
-      size: entry.size || 0,
+      path: entry.path_lower ?? entry.path_display ?? entry.name,
+      size: entry['.tag'] === 'file' ? entry.size : 0,
       id: entry.id,
       isFolder: entry['.tag'] === 'folder',
     }));
-    return files;
+    return mappedFiles;
   } catch (error) {
     console.error('Error listing files:', error);
     throw error;
@@ -74,11 +115,14 @@ export const getThumbnail = async (path: string): Promise<string | null> => {
   try {
     const response = await dbx.filesGetThumbnail({
       path,
-      format: 'jpeg',
-      size: 'w256h256',
+      format: { '.tag': 'jpeg' },
+      size: { '.tag': 'w256h256' },
     });
-    const blob = (response.result as any).fileBlob;
-    return URL.createObjectURL(blob);
+    const { fileBlob } = response.result as ThumbnailResult;
+    if (!fileBlob) {
+      return null;
+    }
+    return URL.createObjectURL(fileBlob);
   } catch (error) {
     console.error('Error getting thumbnail:', error);
     return null;

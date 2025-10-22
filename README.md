@@ -27,6 +27,7 @@ SmartOps Automation Engine combines the Bolt-generated SmartOps frontend with a 
  │   │   │   ├─ uploads/    # Upload queue CRUD
  │   │   │   ├─ reports/    # Analytics & OpenAI summaries
  │   │   │   ├─ notifications/ # FCM topic subscriptions & triggers
+ │   │   │   ├─ caption-generator/ # OpenAI-powered caption & hashtag service
  │   │   │   └─ scheduler/  # BullMQ recurring jobs
  │   │   └─ prisma/schema.prisma
  │   ├─ Dockerfile
@@ -48,7 +49,7 @@ SmartOps Automation Engine combines the Bolt-generated SmartOps frontend with a 
 
 ### Frontend (`.env.local`)
 
-Copy `frontend/.env.example` (root `.env.example`) and provide:
+Copy the root `.env.example` to `.env.local` and provide:
 
 ```env
 VITE_SUPABASE_URL=
@@ -155,6 +156,7 @@ model JobsLog {
   - Upload automation every Monday 10:00
   - Weekly analytics summary every Sunday 18:00
   - Execution history stored in `jobs_log`
+- **Caption Generator:** Admin/Team-only endpoint to refresh captions & hashtags via OpenAI with rate limiting
 - **Swagger:** Available at `/api/docs`
 
 ## API Quick Reference
@@ -171,6 +173,7 @@ model JobsLog {
 | PATCH | `/api/uploads/:id` | Update status/metadata |
 | GET | `/api/reports` | Weekly analytics & AI summary |
 | POST | `/api/notifications/subscribe` | Subscribe FCM token to event topic |
+| POST | `/api/captions/generate/:videoId` | Admin/Team: Regenerate captions and hashtags |
 
 All endpoints except webhook require an `Authorization: Bearer <Firebase ID token>` header.
 
