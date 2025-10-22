@@ -259,6 +259,69 @@ Execution details are stored in the `jobs_log` table for auditing.
 - **OpenAI summary fallback:** Logs will show if the API key is missing or rate limited; the API gracefully returns a placeholder summary.
 - **Notifications not firing:** Verify FCM topics (`smartops_dropbox`, `smartops_uploads`, `smartops_reports`) and ensure device tokens are subscribed via `/api/notifications/subscribe`.
 
+## Admin Startup Checklist
+
+Follow these steps the first time you bring SmartOps online (locally or on a VPS):
+
+1. **Install tooling**
+   - Windows/macOS: [Docker Desktop](https://www.docker.com/products/docker-desktop) (includes Docker Compose v2)
+   - Linux VPS: `sudo apt-get install docker.io docker-compose-plugin`
+   - Git for cloning (`winget install Git.Git` on Windows, `sudo apt-get install git` on Debian/Ubuntu)
+2. **Clone the repository**
+   ```bash
+   git clone https://github.com/your-org/smartops.git
+   cd smartops
+   ```
+3. **Create the runtime environment file**
+   ```bash
+   cp .env.example .env
+   ```
+4. **Fill in mandatory secrets & URLs inside `.env`**
+   - `OPENAI_API_KEY` – required for AI captions and weekly summaries
+   - `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET`, `DROPBOX_REFRESH_TOKEN` – generated from your Dropbox Scoped App
+   - `FIREBASE_*` block – copy from your Firebase Admin service account JSON and client config (project ID, private key, client email, API key, auth domain, messaging sender ID, app ID, VAPID key)
+   - `FIREBASE_ADMIN_EMAIL` / `FIREBASE_ADMIN_UID` – email/UID of the bootstrap administrator you want promoted on first login
+   - `DATABASE_URL` – keep the default `postgresql://postgres:supersecret@postgres:5432/postgres` unless you manage Postgres externally
+   - `REDIS_URL` – keep the default `redis://redis:6379`
+   - Update any domains (e.g., `APP_BASE_URL`, `BACKEND_API_URL`) to match your intended hostnames
+5. **Reference snippet for `.env` values**
+   ```env
+   # Core access keys
+   OPENAI_API_KEY=sk-your-openai-key
+   DROPBOX_APP_KEY=dropbox-app-key
+   DROPBOX_APP_SECRET=dropbox-app-secret
+   DROPBOX_REFRESH_TOKEN=dropbox-refresh-token
+
+   # Firebase admin bootstrap
+   FIREBASE_ADMIN_EMAIL=admin@smartops.test
+   FIREBASE_ADMIN_UID=abcd1234firebaseuid
+
+   # Public Firebase config for the frontend (prefix with VITE_)
+   VITE_FIREBASE_API_KEY=your-firebase-api-key
+   VITE_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+   VITE_FIREBASE_PROJECT_ID=your-project-id
+   VITE_FIREBASE_MESSAGING_SENDER_ID=1234567890
+   VITE_FIREBASE_APP_ID=1:1234567890:web:abcdef123456
+   VITE_FIREBASE_MEASUREMENT_ID=G-XXXXXXXXXX
+   VITE_FIREBASE_VAPID_KEY=BPExampleVapidKey
+   ```
+6. **Start the stack**
+   ```bash
+   docker compose up -d --build
+   ```
+7. **Apply database migrations inside the backend container**
+   ```bash
+   docker compose exec backend npx prisma migrate deploy
+   docker compose exec backend npx prisma generate
+   ```
+8. **Verify services before handing access to the team**
+   - Frontend: http://localhost (or your VPS domain)
+   - Backend health check: `curl http://localhost:8080/health`
+   - API docs: `curl http://localhost:8080/api/docs`
+9. **Create the first admin account**
+   - In Firebase Authentication, add the email/UID specified above.
+   - Sign into the frontend; the backend will promote this user to the Admin role automatically.
+
 ## License
 
 Proprietary – SmartOps Agency. All rights reserved.
