@@ -74,6 +74,9 @@ DROPBOX_APP_KEY=
 DROPBOX_APP_SECRET=
 DROPBOX_REFRESH_TOKEN=
 OPENAI_API_KEY=
+CAPTION_LANG=bg
+CAPTION_MAX_TOKENS=150
+CAPTION_STALE_DAYS=30
 FIREBASE_PROJECT_ID=
 FIREBASE_CLIENT_EMAIL=
 FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\\n...\\n-----END PRIVATE KEY-----\\n"
@@ -112,7 +115,9 @@ model Video {
   size       BigInt
   status     VideoStatus
   brand      String?
-  caption    String?
+  caption    String?  @db.Text
+  hashtags   String?  @db.Text
+  captionGeneratedAt DateTime? @map("caption_generated_at")
   createdAt  DateTime @default(now()) @map("created_at")
   user       User?    @relation(fields: [userId], references: [id])
   userId     String?  @map("user_id")

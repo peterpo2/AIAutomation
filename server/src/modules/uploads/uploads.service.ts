@@ -1,5 +1,6 @@
 import { prisma } from '../auth/prisma.client.js';
 import { notificationsService } from '../notifications/notifications.service.js';
+import { captionGeneratorService } from '../caption-generator/caption-generator.service.js';
 
 export const uploadsService = {
   async list() {
@@ -25,6 +26,11 @@ export const uploadsService = {
         caption: data.caption,
       },
     });
+    if (!data.caption) {
+      captionGeneratorService
+        .generateForVideo(video, { notify: true })
+        .catch((error) => console.error(`Auto caption generation failed for ${video.id}`, error));
+    }
     return video;
   },
 

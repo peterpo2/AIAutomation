@@ -5,6 +5,7 @@ import { uploadsService } from '../uploads/uploads.service.js';
 import { prisma } from '../auth/prisma.client.js';
 import { notificationsService } from '../notifications/notifications.service.js';
 import { reportsService } from '../reports/reports.service.js';
+import { captionGeneratorService } from '../caption-generator/caption-generator.service.js';
 
 const redisUrl = process.env.REDIS_URL || 'redis://redis:6379';
 
@@ -14,6 +15,7 @@ class SchedulerService {
   private dropboxQueue = new Queue('dropbox-sync', { connection });
   private uploadQueue = new Queue('upload-automation', { connection });
   private reportQueue = new Queue('weekly-report', { connection });
+  private captionQueue = new Queue('caption-refresh', { connection });
   private initialized = false;
 
   async init() {
@@ -73,6 +75,20 @@ class SchedulerService {
       { connection },
     );
 
+    new Worker(
+      'caption-refresh',
+      async () => {
+        try {
+          await captionGeneratorService.refreshStaleCaptions();
+          await this.logJob('caption-refresh', 'success');
+        } catch (error) {
+          await this.logJob('caption-refresh', 'failed');
+          throw error;
+        }
+      },
+      { connection },
+    );
+
     await this.ensureRecurringJobs();
 
     this.initialized = true;
@@ -106,6 +122,18 @@ class SchedulerService {
         },
         removeOnComplete: true,
         jobId: 'report-recurring',
+      },
+    );
+
+    await this.captionQueue.add(
+      'weekly-caption-refresh',
+      {},
+      {
+        repeat: {
+          pattern: '0 12 * * 0',
+        },
+        removeOnComplete: true,
+        jobId: 'caption-recurring',
       },
     );
   }

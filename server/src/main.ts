@@ -13,6 +13,7 @@ import { notificationsRouter } from './modules/notifications/notifications.contr
 import { scheduler } from './modules/scheduler/scheduler.service.js';
 import { swaggerSpec } from './swagger.js';
 import { errorHandler } from './modules/auth/error.middleware.js';
+import { captionGeneratorRouter } from './modules/caption-generator/caption-generator.controller.js';
 
 dotenv.config();
 
@@ -40,6 +41,7 @@ app.use('/api/dropbox', dropboxRouter);
 app.use('/api/uploads', uploadsRouter);
 app.use('/api/reports', reportsRouter);
 app.use('/api/notifications', notificationsRouter);
+app.use('/api/captions', captionGeneratorRouter);
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 app.get('/health', (_req, res) => {

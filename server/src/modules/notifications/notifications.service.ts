@@ -4,6 +4,7 @@ const topicMap: Record<string, string> = {
   'dropbox:new-file': 'smartops_dropbox',
   'upload:complete': 'smartops_uploads',
   'reports:weekly': 'smartops_reports',
+  'caption:generated': 'caption_updates',
 };
 
 export const notificationsService = {

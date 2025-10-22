@@ -2,6 +2,7 @@ import { Dropbox } from 'dropbox';
 import axios from 'axios';
 import { prisma } from '../auth/prisma.client.js';
 import { notificationsService } from '../notifications/notifications.service.js';
+import { captionGeneratorService } from '../caption-generator/caption-generator.service.js';
 
 const getDropboxClient = async () => {
   const refreshToken = process.env.DROPBOX_REFRESH_TOKEN;
@@ -55,7 +56,7 @@ export const dropboxService = {
             },
           });
           if (!exists) {
-            await prisma.video.create({
+            const video = await prisma.video.create({
               data: {
                 fileName: entry.name,
                 folderPath: entry.path_display ?? '',
@@ -65,6 +66,9 @@ export const dropboxService = {
               },
             });
             newVideos.push(entry.name);
+            captionGeneratorService
+              .generateForVideo(video, { notify: true })
+              .catch((error) => console.error(`Auto caption generation failed for ${video.id}`, error));
           }
         }
       }

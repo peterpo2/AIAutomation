@@ -75,6 +75,41 @@ export const swaggerSpec: OpenAPIV3.Document = {
         responses: { '200': { description: 'Updated' } },
       },
     },
+    '/captions/generate/{videoId}': {
+      post: {
+        summary: 'Regenerate AI caption for a video',
+        parameters: [
+          {
+            in: 'path',
+            name: 'videoId',
+            schema: { type: 'string' },
+            required: true,
+          },
+        ],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  keywords: {
+                    oneOf: [
+                      { type: 'array', items: { type: 'string' } },
+                      { type: 'string' },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': { description: 'Caption generated' },
+          '403': { description: 'Forbidden' },
+        },
+      },
+    },
     '/reports': {
       get: {
         summary: 'Get weekly performance report',
