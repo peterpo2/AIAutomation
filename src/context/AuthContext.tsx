@@ -7,11 +7,12 @@ import {
   onAuthStateChanged,
   sendPasswordResetEmail,
 } from 'firebase/auth';
-import { auth } from '../lib/firebase';
+import { auth, firebaseConfigError } from '../lib/firebase';
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
+  configError: string | null;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -31,8 +32,15 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [configError, setConfigError] = useState<string | null>(firebaseConfigError);
 
   useEffect(() => {
+    if (!auth) {
+      setConfigError((prev) => prev ?? 'Firebase authentication is not configured.');
+      setLoading(false);
+      return;
+    }
+
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUser(user);
       setLoading(false);
@@ -42,24 +50,37 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const signIn = async (email: string, password: string) => {
+    if (!auth) {
+      throw new Error(configError ?? 'Authentication service is not configured.');
+    }
     await signInWithEmailAndPassword(auth, email, password);
   };
 
   const signUp = async (email: string, password: string) => {
+    if (!auth) {
+      throw new Error(configError ?? 'Authentication service is not configured.');
+    }
     await createUserWithEmailAndPassword(auth, email, password);
   };
 
   const signOut = async () => {
+    if (!auth) {
+      throw new Error(configError ?? 'Authentication service is not configured.');
+    }
     await firebaseSignOut(auth);
   };
 
   const resetPassword = async (email: string) => {
+    if (!auth) {
+      throw new Error(configError ?? 'Authentication service is not configured.');
+    }
     await sendPasswordResetEmail(auth, email);
   };
 
   const value = {
     user,
     loading,
+    configError,
     signIn,
     signUp,
     signOut,

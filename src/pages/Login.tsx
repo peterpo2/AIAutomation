@@ -12,11 +12,16 @@ export default function Login() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
-  const { signIn, signUp, resetPassword } = useAuth();
+  const { signIn, signUp, resetPassword, configError } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (configError) {
+      setError(configError);
+      return;
+    }
+
     setError('');
     setSuccess('');
     setLoading(true);
@@ -40,6 +45,30 @@ export default function Login() {
       setLoading(false);
     }
   };
+
+  if (configError) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center p-4">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md text-center space-y-4"
+        >
+          <div className="flex items-center justify-center mb-4">
+            <div className="bg-red-500 p-3 rounded-xl">
+              <Zap className="w-8 h-8 text-white" />
+            </div>
+            <h1 className="text-3xl font-bold ml-3 text-gray-800">SmartOps</h1>
+          </div>
+          <AlertCircle className="w-12 h-12 text-red-500 mx-auto" />
+          <h2 className="text-2xl font-semibold text-gray-800">Configuration required</h2>
+          <p className="text-gray-600">
+            {configError}. Please provide the Firebase credentials in your environment variables before attempting to sign in.
+          </p>
+        </motion.div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center p-4">

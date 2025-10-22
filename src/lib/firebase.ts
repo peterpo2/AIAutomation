@@ -1,31 +1,66 @@
+import type { FirebaseApp } from 'firebase/app';
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getMessaging, getToken, onMessage, isSupported } from 'firebase/messaging';
 
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+const requiredFirebaseEnv = {
+  VITE_FIREBASE_API_KEY: import.meta.env.VITE_FIREBASE_API_KEY,
+  VITE_FIREBASE_AUTH_DOMAIN: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  VITE_FIREBASE_PROJECT_ID: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  VITE_FIREBASE_STORAGE_BUCKET: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  VITE_FIREBASE_MESSAGING_SENDER_ID: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  VITE_FIREBASE_APP_ID: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
-export const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
+const missingFirebaseEnv = Object.entries(requiredFirebaseEnv)
+  .filter(([, value]) => !value)
+  .map(([key]) => key);
+
+export const firebaseConfigError =
+  missingFirebaseEnv.length > 0
+    ? `Missing Firebase environment variables: ${missingFirebaseEnv.join(', ')}`
+    : null;
+
+const firebaseConfig = firebaseConfigError
+  ? null
+  : {
+      apiKey: requiredFirebaseEnv.VITE_FIREBASE_API_KEY,
+      authDomain: requiredFirebaseEnv.VITE_FIREBASE_AUTH_DOMAIN,
+      projectId: requiredFirebaseEnv.VITE_FIREBASE_PROJECT_ID,
+      storageBucket: requiredFirebaseEnv.VITE_FIREBASE_STORAGE_BUCKET,
+      messagingSenderId: requiredFirebaseEnv.VITE_FIREBASE_MESSAGING_SENDER_ID,
+      appId: requiredFirebaseEnv.VITE_FIREBASE_APP_ID,
+    };
+
+let app: FirebaseApp | null = null;
+
+if (firebaseConfig) {
+  app = initializeApp(firebaseConfig);
+} else if (firebaseConfigError) {
+  console.warn(firebaseConfigError);
+}
+
+export const firebaseApp = app;
+export const auth = app ? getAuth(app) : null;
 
 let messaging: ReturnType<typeof getMessaging> | null = null;
 
 export const initializeMessaging = async () => {
+  if (!firebaseApp) {
+    return null;
+  }
   const supported = await isSupported();
   if (supported) {
-    messaging = getMessaging(app);
+    messaging = getMessaging(firebaseApp);
     return messaging;
   }
   return null;
 };
 
 export const requestNotificationPermission = async () => {
+  if (!firebaseApp) {
+    return null;
+  }
   try {
     const permission = await Notification.requestPermission();
     if (permission === 'granted') {
@@ -44,6 +79,9 @@ export const requestNotificationPermission = async () => {
 };
 
 export const onMessageListener = async () => {
+  if (!firebaseApp) {
+    return null;
+  }
   const msg = await initializeMessaging();
   if (msg) {
     return new Promise((resolve) => {
