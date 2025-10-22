@@ -5,7 +5,7 @@ import { getMessaging, getToken, onMessage, isSupported } from 'firebase/messagi
 
 const rawDemoFlag = import.meta.env.VITE_ENABLE_DEMO_AUTH;
 export const isDemoAuthEnabled =
-  rawDemoFlag === undefined ? true : rawDemoFlag === 'true' || rawDemoFlag === '1';
+  rawDemoFlag === undefined ? false : rawDemoFlag === 'true' || rawDemoFlag === '1';
 
 const requiredFirebaseEnv = {
   VITE_FIREBASE_API_KEY: import.meta.env.VITE_FIREBASE_API_KEY,
