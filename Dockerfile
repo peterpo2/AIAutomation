@@ -44,6 +44,7 @@ COPY server/package*.json ./
 RUN npm ci --legacy-peer-deps
 
 COPY server/ .
+RUN npx prisma generate --schema src/prisma/schema.prisma
 RUN npm run build
 
 # Strip dev dependencies before copying to the runtime image
@@ -68,7 +69,7 @@ ENV NODE_ENV=production
 COPY --from=backend-build /backend/node_modules ./node_modules
 COPY --from=backend-build /backend/dist ./dist
 COPY server/package.json ./package.json
-COPY server/prisma ./prisma
+COPY --from=backend-build /backend/src/prisma ./prisma
 
 EXPOSE 8080
 

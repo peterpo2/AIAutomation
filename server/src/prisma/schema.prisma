@@ -42,6 +42,5 @@ model JobsLog {
   jobName    String   @map("job_name")
   status     String
   executedAt DateTime @default(now()) @map("executed_at")
+  @@map("jobs_log")
 }
-
-@@map("jobs_log")
