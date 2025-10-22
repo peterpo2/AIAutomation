@@ -14,6 +14,8 @@ interface AuthContextType {
   loading: boolean;
   configError: string | null;
   demoMode: boolean;
+  diagnosticMode: boolean;
+  enableDiagnostics: () => void;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -31,17 +33,18 @@ export const useAuth = () => {
 };
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const demoUser = {
-    uid: 'demo-user',
-    email: 'demo@smartops.local',
-    displayName: 'Demo User',
+  const placeholderUser = {
+    uid: 'placeholder-user',
+    email: 'placeholder@smartops.local',
+    displayName: 'SmartOps User',
   } as unknown as User;
 
-  const [user, setUser] = useState<User | null>(isDemoAuthEnabled ? demoUser : null);
+  const [user, setUser] = useState<User | null>(isDemoAuthEnabled ? placeholderUser : null);
   const [loading, setLoading] = useState(!isDemoAuthEnabled);
   const [configError, setConfigError] = useState<string | null>(
     isDemoAuthEnabled ? null : firebaseConfigError,
   );
+  const [diagnosticMode, setDiagnosticMode] = useState(false);
 
   useEffect(() => {
     if (isDemoAuthEnabled) {
@@ -55,17 +58,26 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return;
     }
 
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setUser(user);
+    const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
+      setUser(nextUser);
       setLoading(false);
+      if (nextUser) {
+        setDiagnosticMode(false);
+      }
     });
 
     return unsubscribe;
   }, []);
 
+  const enableDiagnostics = () => {
+    setDiagnosticMode(true);
+    setUser(placeholderUser);
+    setLoading(false);
+  };
+
   const signIn = async (email: string, password: string) => {
-    if (isDemoAuthEnabled) {
-      setUser(demoUser);
+    if (isDemoAuthEnabled || diagnosticMode) {
+      setUser(placeholderUser);
       return;
     }
     if (!auth) {
@@ -75,8 +87,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const signUp = async (email: string, password: string) => {
-    if (isDemoAuthEnabled) {
-      setUser(demoUser);
+    if (isDemoAuthEnabled || diagnosticMode) {
+      setUser(placeholderUser);
       return;
     }
     if (!auth) {
@@ -86,8 +98,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const signOut = async () => {
-    if (isDemoAuthEnabled) {
-      setUser(null);
+    if (isDemoAuthEnabled || diagnosticMode) {
+      setUser(placeholderUser);
       return;
     }
     if (!auth) {
@@ -97,7 +109,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const resetPassword = async (email: string) => {
-    if (isDemoAuthEnabled) {
+    if (isDemoAuthEnabled || diagnosticMode) {
       return;
     }
     if (!auth) {
@@ -111,6 +123,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     loading,
     configError,
     demoMode: isDemoAuthEnabled,
+    diagnosticMode,
+    enableDiagnostics,
     signIn,
     signUp,
     signOut,
