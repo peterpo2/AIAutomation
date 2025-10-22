@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Video, Save, Trash2, Edit2 } from 'lucide-react';
-import { supabase, VideoMetadata } from '../lib/supabase';
+import { supabase, supabaseInitError, VideoMetadata } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import type { DropboxFile } from '../lib/dropbox';
 
@@ -9,9 +9,14 @@ export default function Uploads() {
   const { user } = useAuth();
   const [videos, setVideos] = useState<VideoMetadata[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const supabaseConfigMessage =
+    supabaseInitError?.message ??
+    (!supabase
+      ? 'Supabase client is not configured. Please define VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY before building the frontend.'
+      : '');
 
   const loadVideos = useCallback(async () => {
-    if (!user) return;
+    if (!user || !supabase) return;
     const { data, error } = await supabase
       .from('videos')
       .select('*')
@@ -53,7 +58,7 @@ export default function Uploads() {
   }, [loadVideos]);
 
   const handleSave = async (video: VideoMetadata, index: number) => {
-    if (!user) return;
+    if (!user || !supabase) return;
 
     const videoData = {
       ...video,
@@ -85,7 +90,7 @@ export default function Uploads() {
   };
 
   const handleDelete = async (video: VideoMetadata, index: number) => {
-    if (video.id) {
+    if (video.id && supabase) {
       await supabase.from('videos').delete().eq('id', video.id);
     }
     setVideos(videos.filter((_, i) => i !== index));
@@ -96,6 +101,35 @@ export default function Uploads() {
     newVideos[index] = { ...newVideos[index], [field]: value };
     setVideos(newVideos);
   };
+
+  if (!supabase) {
+    return (
+      <div className="space-y-6">
+        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-6">
+          <h2 className="text-2xl font-semibold text-yellow-900">Supabase configuration required</h2>
+          <p className="text-sm text-yellow-800 mt-2 leading-relaxed">
+            {supabaseConfigMessage ||
+              'The Supabase client could not be initialized because required environment variables are missing.'}
+          </p>
+          <div className="mt-4 text-sm text-yellow-800 space-y-2">
+            <p>Ensure the following variables are defined before building the frontend (see .env.example):</p>
+            <ul className="list-disc list-inside">
+              <li>
+                <code>VITE_SUPABASE_URL</code>
+              </li>
+              <li>
+                <code>VITE_SUPABASE_ANON_KEY</code>
+              </li>
+            </ul>
+            <p>
+              After updating your <code>.env</code> file, rebuild the Docker images or restart the Vite dev server so the new
+              variables are picked up.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

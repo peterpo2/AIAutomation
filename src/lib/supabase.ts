@@ -1,9 +1,44 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+const missingVars: string[] = [];
+
+if (!supabaseUrl) {
+  missingVars.push('VITE_SUPABASE_URL');
+}
+
+if (!supabaseAnonKey) {
+  missingVars.push('VITE_SUPABASE_ANON_KEY');
+}
+
+let supabaseClient: SupabaseClient | null = null;
+let initializationError: Error | null = null;
+
+if (missingVars.length > 0) {
+  initializationError = new Error(
+    `Missing Supabase environment variables: ${missingVars.join(', ')}. Please set them in your .env file.`,
+  );
+  if (import.meta.env.DEV) {
+    console.warn(initializationError.message);
+  }
+} else {
+  try {
+    supabaseClient = createClient(supabaseUrl, supabaseAnonKey);
+  } catch (error) {
+    initializationError =
+      error instanceof Error
+        ? error
+        : new Error('Failed to initialize Supabase client.');
+    if (import.meta.env.DEV) {
+      console.error('Supabase initialization error:', initializationError);
+    }
+  }
+}
+
+export const supabase = supabaseClient;
+export const supabaseInitError = initializationError;
 
 export type VideoMetadata = {
   id?: string;
