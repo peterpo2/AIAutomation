@@ -1,326 +1,259 @@
-# SmartOps Frontend (VPS Edition)
+# SmartOps Automation Engine
 
-Modern automation dashboard for social-media content teams built for a Bulgarian PR and marketing firm.
+SmartOps Automation Engine combines the Bolt-generated SmartOps frontend with a secure TypeScript backend that automates the Dropbox → Upload Queue → TikTok workflow. The stack is optimized for VPS hosting (Hetzner/Contabo) and ships with Docker-based deployment.
 
-## Features
+## Architecture Overview
 
-- React + Vite + TypeScript + Tailwind CSS
-- Dropbox integration (browse, preview, select videos)
-- Firebase Auth & push notifications
-- Supabase database for metadata storage
-- Progressive Web App (PWA) for Safari & iPhone
-- VPS self-hosting via Docker + Nginx
-- Professional, responsive UI with smooth animations
+| Layer | Tech | Responsibilities |
+| --- | --- | --- |
+| Frontend | React 18 · Vite · Tailwind CSS | Auth UI, Dropbox browser, upload manager, reports & settings |
+| Backend | Express + TypeScript | Firebase-authenticated REST API, Dropbox sync, upload queue, analytics, notifications |
+| Database | PostgreSQL (Prisma ORM) | Users, videos, job logs |
+| Queue & Scheduler | BullMQ + Redis | Dropbox sync, weekly uploads, analytics summaries |
+| Messaging | Firebase Cloud Messaging | Push notifications for key events |
+| AI | OpenAI Responses API | Weekly report summaries |
 
-## Tech Stack
-
-- **Frontend Framework**: React 18 with TypeScript
-- **Build Tool**: Vite
-- **Styling**: Tailwind CSS
-- **Animations**: Framer Motion
-- **Charts**: Recharts
-- **Authentication**: Firebase Auth
-- **Database**: Supabase
-- **File Storage**: Dropbox API
-- **Notifications**: Firebase Cloud Messaging
-- **Routing**: React Router v7
-
-## Project Structure
+## Repository Layout
 
 ```
-/smartops-frontend
- ├─ src/
- │   ├─ pages/               # Main application pages
- │   │   ├─ Login.tsx       # Firebase authentication
- │   │   ├─ Dashboard.tsx   # Overview & quick actions
- │   │   ├─ Dropbox.tsx     # File browser with video selection
- │   │   ├─ Uploads.tsx     # Upload queue with metadata editing
- │   │   ├─ Reports.tsx     # Analytics & performance charts
- │   │   └─ Settings.tsx    # User preferences & integrations
- │   ├─ components/         # Reusable components
- │   │   ├─ Layout.tsx      # Main layout with sidebar
- │   │   └─ ProtectedRoute.tsx # Route protection
- │   ├─ context/            # React context providers
- │   │   └─ AuthContext.tsx # Authentication state
- │   ├─ lib/                # External integrations
- │   │   ├─ firebase.ts     # Firebase config & messaging
- │   │   ├─ supabase.ts     # Supabase client & types
- │   │   └─ dropbox.ts      # Dropbox API integration
- │   ├─ App.tsx             # Main app with routing
- │   ├─ main.tsx            # App entry point
- │   └─ index.css           # Global styles
- ├─ public/
- │   ├─ manifest.json       # PWA manifest
- │   ├─ service-worker.js   # Service worker for offline support
- │   └─ firebase-messaging-sw.js # Firebase messaging worker
- ├─ Dockerfile              # Multi-stage Docker build
- ├─ nginx.conf              # Nginx configuration
- └─ .env.example            # Environment variables template
+/ (repo root)
+ ├─ src/                    # React frontend source
+ ├─ server/                 # Express + Prisma backend
+ │   ├─ src/
+ │   │   ├─ main.ts         # API bootstrap & Swagger
+ │   │   ├─ modules/
+ │   │   │   ├─ auth/       # Firebase auth middleware & role sync
+ │   │   │   ├─ dropbox/    # Dropbox sync & webhook validation
+ │   │   │   ├─ uploads/    # Upload queue CRUD
+ │   │   │   ├─ reports/    # Analytics & OpenAI summaries
+ │   │   │   ├─ notifications/ # FCM topic subscriptions & triggers
+ │   │   │   └─ scheduler/  # BullMQ recurring jobs
+ │   │   └─ prisma/schema.prisma
+ │   ├─ Dockerfile
+ │   └─ .env.example
+ ├─ docker-compose.yml      # Unified frontend + backend stack
+ └─ README.md               # (this file)
 ```
 
-## Setup Instructions
+## Prerequisites
 
-### 1. Install Dependencies
+- Node.js 20+
+- Docker & Docker Compose v2
+- Firebase project with Authentication + Cloud Messaging enabled
+- Dropbox app (Scoped access) with refresh token
+- OpenAI API key
+- PostgreSQL & Redis credentials (provided automatically when using Docker Compose)
 
-```bash
-npm install
-```
+## Environment Variables
 
-### 2. Configure Environment Variables
+### Frontend (`.env.local`)
 
-Copy `.env.example` to `.env.local` and fill in your credentials:
-
-```bash
-cp .env.example .env.local
-```
-
-Required variables:
+Copy `frontend/.env.example` (root `.env.example`) and provide:
 
 ```env
-# Supabase (Database)
-VITE_SUPABASE_URL=your-supabase-project-url
-VITE_SUPABASE_ANON_KEY=your-supabase-anon-key
-
-# Firebase (Authentication & Notifications)
-VITE_FIREBASE_API_KEY=your-firebase-api-key
-VITE_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
-VITE_FIREBASE_PROJECT_ID=your-project-id
-VITE_FIREBASE_STORAGE_BUCKET=your-project.appspot.com
-VITE_FIREBASE_MESSAGING_SENDER_ID=your-sender-id
-VITE_FIREBASE_APP_ID=your-app-id
-VITE_FIREBASE_VAPID_KEY=your-vapid-key
-
-# Dropbox (File Integration)
-VITE_DROPBOX_APP_KEY=your-dropbox-app-key
+VITE_SUPABASE_URL=
+VITE_SUPABASE_ANON_KEY=
+VITE_FIREBASE_API_KEY=
+VITE_FIREBASE_AUTH_DOMAIN=
+VITE_FIREBASE_PROJECT_ID=
+VITE_FIREBASE_STORAGE_BUCKET=
+VITE_FIREBASE_MESSAGING_SENDER_ID=
+VITE_FIREBASE_APP_ID=
+VITE_FIREBASE_VAPID_KEY=
+VITE_DROPBOX_APP_KEY=
 ```
 
-### 3. Update Firebase Messaging Service Worker
+### Backend (`server/.env`)
 
-Edit `public/firebase-messaging-sw.js` with your Firebase config.
+```env
+DATABASE_URL=postgresql://postgres:supersecret@db:5432/postgres?schema=public
+REDIS_URL=redis://redis:6379
+PORT=8080
+CORS_WHITELIST=https://smartops.yourdomain.com,http://localhost:5173
+DROPBOX_APP_KEY=
+DROPBOX_APP_SECRET=
+DROPBOX_REFRESH_TOKEN=
+OPENAI_API_KEY=
+FIREBASE_PROJECT_ID=
+FIREBASE_CLIENT_EMAIL=
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\\n...\\n-----END PRIVATE KEY-----\\n"
+FIREBASE_ADMIN_EMAIL=admin@smartops.test
+FIREBASE_ADMIN_UID=
+```
 
-### 4. Development
+> **Tip:** The backend automatically promotes the Firebase user whose email or UID matches `FIREBASE_ADMIN_EMAIL` / `FIREBASE_ADMIN_UID` to the `Admin` role inside PostgreSQL.
+
+## Example Admin Credentials
+
+1. In the Firebase console (Authentication → Users) create an email/password user:
+   - **Email:** `admin@smartops.test`
+   - **Password:** `DemoAdmin123!`
+2. Copy the generated UID into `FIREBASE_ADMIN_UID` (optional, but keeps the admin role even if the email changes).
+3. Sign in with this account on the frontend to receive full administrator privileges (role assignment happens on first authenticated request to the backend).
+
+> For staging, you can create additional Firebase users and assign roles via the `/api/auth/role` endpoint (requires an Admin token).
+
+## Database Schema (Prisma)
+
+```prisma
+model User {
+  id         String   @id @default(uuid())
+  email      String   @unique
+  role       String
+  createdAt  DateTime @default(now()) @map("created_at")
+  videos     Video[]
+}
+
+model Video {
+  id         String   @id @default(uuid())
+  fileName   String   @map("file_name")
+  folderPath String   @map("folder_path")
+  dropboxId  String   @map("dropbox_id")
+  size       BigInt
+  status     VideoStatus
+  brand      String?
+  caption    String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  user       User?    @relation(fields: [userId], references: [id])
+  userId     String?  @map("user_id")
+}
+
+enum VideoStatus {
+  pending
+  ready
+  uploaded
+}
+
+model JobsLog {
+  id         Int      @id @default(autoincrement())
+  jobName    String   @map("job_name")
+  status     String
+  executedAt DateTime @default(now()) @map("executed_at")
+}
+```
+
+## Backend Features
+
+- **Auth & Users:** Firebase JWT verification on all protected routes, automatic mirroring into PostgreSQL with role persistence and admin bootstrap.
+- **Dropbox Module:**
+  - `/api/dropbox/webhook` – signature-validated webhook for incremental sync
+  - `/api/dropbox/refresh` – manual sync trigger
+  - Signed temporary links for previews
+- **Upload Queue:**
+  - `/api/uploads` – list & create queue entries
+  - `/api/uploads/:id` – update status, caption, brand
+  - Auto-upload worker runs every Monday at 10:00 (cron placeholder)
+- **Reports:** `/api/reports` returns mock metrics plus OpenAI generated summary
+- **Notifications:** FCM topic subscription endpoint and automated pushes for Dropbox changes, upload completions, weekly reports
+- **Scheduler:** BullMQ recurring jobs
+  - Dropbox sync every 6 hours
+  - Upload automation every Monday 10:00
+  - Weekly analytics summary every Sunday 18:00
+  - Execution history stored in `jobs_log`
+- **Swagger:** Available at `/api/docs`
+
+## API Quick Reference
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| GET | `/api/auth/me` | Returns current user profile & role |
+| POST | `/api/auth/role` | Admin-only role assignment |
+| POST | `/api/dropbox/refresh` | Enqueue Dropbox sync |
+| GET | `/api/dropbox/temporary-link/:id` | Get short-lived video preview link |
+| POST | `/api/dropbox/webhook` | Dropbox webhook (signature required) |
+| GET | `/api/uploads` | List queued uploads |
+| POST | `/api/uploads` | Create queue item |
+| PATCH | `/api/uploads/:id` | Update status/metadata |
+| GET | `/api/reports` | Weekly analytics & AI summary |
+| POST | `/api/notifications/subscribe` | Subscribe FCM token to event topic |
+
+All endpoints except webhook require an `Authorization: Bearer <Firebase ID token>` header.
+
+## Running Locally with Docker Compose
 
 ```bash
+docker compose up -d --build
+```
+
+The stack brings up:
+
+- Frontend: http://localhost (served via Nginx container)
+- Backend: http://localhost:8080
+- PostgreSQL: localhost:5432 (user `postgres`, password `supersecret`)
+- Redis: localhost:6379
+
+After containers start:
+
+1. Run Prisma migrations (inside the backend container):
+   ```bash
+   docker compose exec backend npx prisma migrate deploy
+   docker compose exec backend npx prisma generate
+   ```
+2. (Optional) Seed roles by hitting `/api/auth/me` with your Firebase admin account.
+
+## Local Development (without Docker)
+
+```bash
+# Frontend
+npm install
+npm run dev
+
+# Backend
+cd server
+npm install
+npm run prisma:generate
 npm run dev
 ```
 
-Visit `http://localhost:5173`
+Ensure PostgreSQL & Redis are running locally and that `DATABASE_URL` / `REDIS_URL` in `server/.env` target them.
 
-### 5. Build for Production
+## Dropbox Setup Guide
 
-```bash
-npm run build
-```
+1. Create a Dropbox Scoped App with `files.metadata.read` and `files.content.read` permissions.
+2. Generate an app key/secret and add them to `server/.env`.
+3. Obtain a refresh token by completing the OAuth 2.0 flow (instructions in Dropbox developer docs) and populate `DROPBOX_REFRESH_TOKEN`.
+4. In Dropbox console, add your backend URL (e.g., `https://smartops.yourdomain.com/api/dropbox/webhook`) as the webhook.
 
-## VPS Deployment
+## Firebase Admin SDK Configuration
 
-### Prerequisites
+1. Create a service account with Firebase Admin privileges.
+2. Download the JSON credentials and copy:
+   - `project_id` → `FIREBASE_PROJECT_ID`
+   - `client_email` → `FIREBASE_CLIENT_EMAIL`
+   - `private_key` → `FIREBASE_PRIVATE_KEY` (escape newlines as `\n`).
+3. Enable Firebase Authentication (Email/Password) and Cloud Messaging. Upload your VAPID key to the frontend environment variables.
 
-- VPS running Ubuntu 22.04 LTS (Hetzner or Contabo)
-- Docker and Docker Compose installed
-- Domain name pointed to your VPS
+## Automation & Cron Summary
 
-### Deployment Steps
+| Job | Schedule | Description |
+| --- | --- | --- |
+| Dropbox Sync | Every 6 hours | Pulls new media into `videos` table |
+| Upload Automation | Monday @ 10:00 | Placeholder for TikTok API upload |
+| Weekly Analytics | Sunday @ 18:00 | Generates AI summary & sends notification |
 
-#### 1. SSH into Your VPS
+Execution details are stored in the `jobs_log` table for auditing.
 
-```bash
-ssh root@your-vps-ip
-```
+## Deployment Checklist
 
-#### 2. Install Docker (if not already installed)
+1. Build environment files (`.env.local`, `server/.env`).
+2. Configure DNS to point `smartops.yourdomain.com` to the VPS.
+3. Provision SSL certificates through Nginx (already configured in frontend Dockerfile/Nginx config).
+4. SSH into the VPS, clone the repository, and run:
+   ```bash
+   docker compose up -d --build
+   docker compose exec backend npx prisma migrate deploy
+   ```
+5. Verify services:
+   - `curl https://smartops.yourdomain.com/health`
+   - `curl https://smartops.yourdomain.com/api/docs`
 
-```bash
-curl -fsSL https://get.docker.com -o get-docker.sh
-sh get-docker.sh
-```
+## Troubleshooting
 
-#### 3. Clone the Repository
-
-```bash
-git clone https://github.com/youruser/smartops-frontend.git
-cd smartops-frontend
-```
-
-#### 4. Create Production .env File
-
-```bash
-nano .env
-```
-
-Add your production environment variables.
-
-#### 5. Build Docker Image
-
-```bash
-docker build -t smartops .
-```
-
-#### 6. Run Container
-
-```bash
-docker run -d -p 80:80 --name smartops smartops
-```
-
-#### 7. Set Up SSL with Certbot
-
-```bash
-# Install Certbot
-apt-get update
-apt-get install certbot python3-certbot-nginx
-
-# Get SSL Certificate
-certbot --nginx -d smartops.yourdomain.com
-
-# Auto-renewal is set up automatically
-```
-
-#### 8. Configure Nginx for HTTPS
-
-Your site will now be accessible at `https://smartops.yourdomain.com`
-
-### Update Deployment
-
-To update the application:
-
-```bash
-cd smartops-frontend
-git pull origin main
-docker build -t smartops .
-docker stop smartops
-docker rm smartops
-docker run -d -p 80:80 --name smartops smartops
-```
-
-## Database Schema
-
-The application uses Supabase with the following tables:
-
-### Videos Table
-
-Stores metadata about videos from Dropbox:
-
-- `id`: UUID primary key
-- `user_id`: Firebase user ID
-- `file_path`: Full Dropbox file path
-- `file_name`: Video filename
-- `file_size`: Size in bytes
-- `dropbox_id`: Dropbox file ID
-- `thumbnail_url`: Video thumbnail URL
-- `brand`: Brand name (Kaufland, Lidl, etc.)
-- `caption`: Social media caption
-- `category`: Video category
-- `status`: pending, scheduled, or uploaded
-- `created_at`: Timestamp
-
-### Analytics Table
-
-Stores performance metrics:
-
-- `id`: UUID primary key
-- `video_id`: Foreign key to videos table
-- `views`: View count
-- `likes`: Like count
-- `comments`: Comment count
-- `shares`: Share count
-- `recorded_at`: Timestamp
-
-## Features Overview
-
-### Authentication (Firebase)
-- Secure email/password login
-- Password reset flow
-- User session management
-- Protected routes
-
-### Dropbox Integration
-- OAuth 2.0 authentication
-- Folder navigation with breadcrumbs
-- Video file filtering (.mp4, .mov, .avi, etc.)
-- Thumbnail preview
-- Multi-select videos
-
-### Upload Queue
-- Manage selected videos
-- Edit metadata (brand, caption, category)
-- Save to Supabase database
-- Track upload status
-
-### Analytics Dashboard
-- Overview cards with key metrics
-- Weekly performance charts
-- Top performing videos
-- Engagement rates
-- Export functionality (placeholder)
-
-### Settings
-- User profile information
-- Dropbox connection management
-- Push notification toggle
-- Dark mode toggle
-- Connection status indicators
-
-### PWA Features
-- Offline support with service worker
-- Add to home screen (iOS/Android)
-- Push notifications
-- Fast load times with caching
-
-## Development Guidelines
-
-### Code Style
-- TypeScript for type safety
-- Functional components with hooks
-- Tailwind CSS for styling
-- Framer Motion for animations
-
-### File Organization
-- One component per file
-- Separate utilities and configurations
-- Clear folder structure
-
-### Security
-- Environment variables for secrets
-- Firebase Authentication
-- Supabase Row Level Security
-- HTTPS in production
-
-## Cost Estimate
-
-Running on a VPS in Bulgaria:
-
-| Component | Provider | Cost |
-|-----------|----------|------|
-| VPS (1 vCPU / 2GB RAM) | Hetzner CX11 | ~€5/month |
-| Domain + SSL | Cloudflare | Free |
-| Firebase | Free tier | €0 |
-| Supabase | Free tier | €0 |
-| Dropbox | Existing account | €0 |
-
-**Total: ~€5/month**
-
-## Future Enhancements (Phase 2)
-
-- n8n automation integration
-- TikTok API for automatic uploads
-- AI-powered caption generation (OpenAI)
-- Advanced analytics with custom date ranges
-- Team collaboration features
-- Scheduled post calendar
-- Video editing tools
-
-## Support
-
-For issues or questions:
-1. Check existing documentation
-2. Review environment variable configuration
-3. Verify Firebase and Dropbox setup
-4. Check browser console for errors
+- **Unauthorized errors:** Ensure frontend Firebase config matches backend Firebase project and that ID tokens are forwarded.
+- **Dropbox sync failures:** Confirm refresh token validity and webhook signature (check backend logs).
+- **OpenAI summary fallback:** Logs will show if the API key is missing or rate limited; the API gracefully returns a placeholder summary.
+- **Notifications not firing:** Verify FCM topics (`smartops_dropbox`, `smartops_uploads`, `smartops_reports`) and ensure device tokens are subscribed via `/api/notifications/subscribe`.
 
 ## License
 
-Proprietary - Bulgarian PR & Marketing Firm
-
-## Version
-
-1.0.0 - Frontend MVP (Phase 1)
+Proprietary – SmartOps Agency. All rights reserved.

@@ -1,0 +1,46 @@
+version: '3.8'
+services:
+  frontend:
+    build: .
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+  backend:
+    build: ./server
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DROPBOX_APP_KEY: ${DROPBOX_APP_KEY}
+      DROPBOX_APP_SECRET: ${DROPBOX_APP_SECRET}
+      DROPBOX_REFRESH_TOKEN: ${DROPBOX_REFRESH_TOKEN}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
+      FIREBASE_CLIENT_EMAIL: ${FIREBASE_CLIENT_EMAIL}
+      FIREBASE_PRIVATE_KEY: ${FIREBASE_PRIVATE_KEY}
+      FIREBASE_ADMIN_EMAIL: ${FIREBASE_ADMIN_EMAIL}
+      FIREBASE_ADMIN_UID: ${FIREBASE_ADMIN_UID}
+      CORS_WHITELIST: ${CORS_WHITELIST:-https://smartops.yourdomain.com}
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+      - redis
+
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_PASSWORD: supersecret
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+volumes:
+  postgres_data:

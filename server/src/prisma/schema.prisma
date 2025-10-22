@@ -1,0 +1,45 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id         String   @id @default(uuid())
+  email      String   @unique
+  role       String
+  createdAt  DateTime @default(now()) @map("created_at")
+  videos     Video[]
+}
+
+model Video {
+  id         String   @id @default(uuid())
+  fileName   String   @map("file_name")
+  folderPath String   @map("folder_path")
+  dropboxId  String   @map("dropbox_id")
+  size       BigInt
+  status     VideoStatus
+  brand      String?
+  caption    String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  user       User?    @relation(fields: [userId], references: [id])
+  userId     String?  @map("user_id")
+}
+
+enum VideoStatus {
+  pending
+  ready
+  uploaded
+}
+
+model JobsLog {
+  id         Int      @id @default(autoincrement())
+  jobName    String   @map("job_name")
+  status     String
+  executedAt DateTime @default(now()) @map("executed_at")
+}
+
+@@map("jobs_log")
