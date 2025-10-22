@@ -38,54 +38,51 @@ SmartOps Automation Engine combines the Bolt-generated SmartOps frontend with a 
 
 ## Prerequisites
 
-- Node.js 20+
-- Docker & Docker Compose v2
+- Docker & Docker Compose v2 (Docker Desktop on Windows/macOS)
 - Firebase project with Authentication + Cloud Messaging enabled
 - Dropbox app (Scoped access) with refresh token
 - OpenAI API key
-- PostgreSQL & Redis credentials (provided automatically when using Docker Compose)
+- Git (optional, for cloning the repository)
 
 ## Environment Variables
 
-### Frontend (`.env.local`)
+The entire stack (frontend, backend, Postgres, Redis) reads from a single `.env` file stored in the repository root. Duplicate files such as `.env.local` or `server/.env` are no longer required.
 
-Copy the root `.env.example` to `.env.local` and provide:
+1. Copy `.env.example` to `.env`.
+2. Fill in the placeholders with your project-specific credentials.
 
-```env
-VITE_SUPABASE_URL=
-VITE_SUPABASE_ANON_KEY=
-VITE_FIREBASE_API_KEY=
-VITE_FIREBASE_AUTH_DOMAIN=
-VITE_FIREBASE_PROJECT_ID=
-VITE_FIREBASE_STORAGE_BUCKET=
-VITE_FIREBASE_MESSAGING_SENDER_ID=
-VITE_FIREBASE_APP_ID=
-VITE_FIREBASE_VAPID_KEY=
-VITE_DROPBOX_APP_KEY=
-```
+The file includes:
 
-### Backend (`server/.env`)
-
-```env
-DATABASE_URL=postgresql://postgres:supersecret@db:5432/postgres?schema=public
-REDIS_URL=redis://redis:6379
-PORT=8080
-CORS_WHITELIST=https://smartops.yourdomain.com,http://localhost:5173
-DROPBOX_APP_KEY=
-DROPBOX_APP_SECRET=
-DROPBOX_REFRESH_TOKEN=
-OPENAI_API_KEY=
-CAPTION_LANG=bg
-CAPTION_MAX_TOKENS=150
-CAPTION_STALE_DAYS=30
-FIREBASE_PROJECT_ID=
-FIREBASE_CLIENT_EMAIL=
-FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\\n...\\n-----END PRIVATE KEY-----\\n"
-FIREBASE_ADMIN_EMAIL=admin@smartops.test
-FIREBASE_ADMIN_UID=
-```
+- **Frontend variables** (`VITE_*`) that Vite injects at build-time.
+- **Backend variables** (`DATABASE_URL`, `DROPBOX_*`, `OPENAI_API_KEY`, etc.).
+- **Database credentials** (`POSTGRES_*`) reused by both the app and the bundled Postgres container.
 
 > **Tip:** The backend automatically promotes the Firebase user whose email or UID matches `FIREBASE_ADMIN_EMAIL` / `FIREBASE_ADMIN_UID` to the `Admin` role inside PostgreSQL.
+
+## Run with Docker (local or VPS)
+
+The same files and commands work on Windows, macOS, Linux, and remote VPS hosts.
+
+```bash
+docker compose up -d --build
+```
+
+- Frontend → `http://localhost`
+- Backend API → `http://localhost:8080`
+- Postgres → exposed on port `5432`
+- Redis → exposed on port `6379`
+
+To stop the stack, run:
+
+```bash
+docker compose down
+```
+
+Tail logs for all services with:
+
+```bash
+docker compose logs -f
+```
 
 ## Example Admin Credentials
 
@@ -213,12 +210,12 @@ npm run prisma:generate
 npm run dev
 ```
 
-Ensure PostgreSQL & Redis are running locally and that `DATABASE_URL` / `REDIS_URL` in `server/.env` target them.
+Ensure PostgreSQL & Redis are running locally and that `DATABASE_URL` / `REDIS_URL` in `.env` target them.
 
 ## Dropbox Setup Guide
 
 1. Create a Dropbox Scoped App with `files.metadata.read` and `files.content.read` permissions.
-2. Generate an app key/secret and add them to `server/.env`.
+2. Generate an app key/secret and add them to `.env`.
 3. Obtain a refresh token by completing the OAuth 2.0 flow (instructions in Dropbox developer docs) and populate `DROPBOX_REFRESH_TOKEN`.
 4. In Dropbox console, add your backend URL (e.g., `https://smartops.yourdomain.com/api/dropbox/webhook`) as the webhook.
 
@@ -243,7 +240,7 @@ Execution details are stored in the `jobs_log` table for auditing.
 
 ## Deployment Checklist
 
-1. Build environment files (`.env.local`, `server/.env`).
+1. Build the shared environment file (`.env`).
 2. Configure DNS to point `smartops.yourdomain.com` to the VPS.
 3. Provision SSL certificates through Nginx (already configured in frontend Dockerfile/Nginx config).
 4. SSH into the VPS, clone the repository, and run:
