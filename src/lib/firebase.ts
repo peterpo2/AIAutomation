@@ -11,7 +11,6 @@ const requiredFirebaseEnv = {
   VITE_FIREBASE_API_KEY: import.meta.env.VITE_FIREBASE_API_KEY,
   VITE_FIREBASE_AUTH_DOMAIN: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
   VITE_FIREBASE_PROJECT_ID: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  VITE_FIREBASE_STORAGE_BUCKET: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
   VITE_FIREBASE_MESSAGING_SENDER_ID: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
   VITE_FIREBASE_APP_ID: import.meta.env.VITE_FIREBASE_APP_ID,
 };
@@ -19,6 +18,17 @@ const requiredFirebaseEnv = {
 const missingFirebaseEnv = Object.entries(requiredFirebaseEnv)
   .filter(([, value]) => !value)
   .map(([key]) => key);
+
+const explicitStorageBucket = import.meta.env.VITE_FIREBASE_STORAGE_BUCKET;
+const inferredStorageBucket = requiredFirebaseEnv.VITE_FIREBASE_PROJECT_ID
+  ? `${requiredFirebaseEnv.VITE_FIREBASE_PROJECT_ID}.appspot.com`
+  : null;
+const resolvedStorageBucket = explicitStorageBucket ?? inferredStorageBucket;
+
+export const firebaseConfigWarning =
+  !isDemoAuthEnabled && !explicitStorageBucket && resolvedStorageBucket
+    ? `VITE_FIREBASE_STORAGE_BUCKET was not set. Using inferred bucket "${resolvedStorageBucket}".`
+    : null;
 
 export const firebaseConfigError =
   !isDemoAuthEnabled && missingFirebaseEnv.length > 0
@@ -32,15 +42,18 @@ const firebaseConfig =
         apiKey: requiredFirebaseEnv.VITE_FIREBASE_API_KEY,
         authDomain: requiredFirebaseEnv.VITE_FIREBASE_AUTH_DOMAIN,
         projectId: requiredFirebaseEnv.VITE_FIREBASE_PROJECT_ID,
-        storageBucket: requiredFirebaseEnv.VITE_FIREBASE_STORAGE_BUCKET,
         messagingSenderId: requiredFirebaseEnv.VITE_FIREBASE_MESSAGING_SENDER_ID,
         appId: requiredFirebaseEnv.VITE_FIREBASE_APP_ID,
+        ...(resolvedStorageBucket ? { storageBucket: resolvedStorageBucket } : {}),
       };
 
 let app: FirebaseApp | null = null;
 
 if (firebaseConfig) {
   app = initializeApp(firebaseConfig);
+  if (firebaseConfigWarning) {
+    console.warn(firebaseConfigWarning);
+  }
 } else if (firebaseConfigError) {
   console.warn(firebaseConfigError);
 } else if (isDemoAuthEnabled) {

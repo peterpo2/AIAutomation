@@ -21,7 +21,7 @@ interface LayoutProps {
 export default function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { demoMode, diagnosticMode, configError } = useAuth();
+  const { demoMode, diagnosticMode, configError, configWarning } = useAuth();
 
   const navItems = [
     { path: '/dashboard', label: 'Dashboard', icon: Home },
@@ -119,6 +119,12 @@ export default function Layout({ children }: LayoutProps) {
                 <p className="mt-1">
                   {configError}. Update your environment variables and rebuild the frontend to restore secure authentication.
                 </p>
+              </div>
+            )}
+            {!diagnosticMode && configWarning && (
+              <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800 shadow-sm">
+                <p className="font-semibold">Firebase configuration warning</p>
+                <p className="mt-1">{configWarning}</p>
               </div>
             )}
             <motion.div

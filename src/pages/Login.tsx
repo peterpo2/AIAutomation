@@ -12,7 +12,16 @@ export default function Login() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
-  const { signIn, signUp, resetPassword, configError, demoMode, diagnosticMode, enableDiagnostics } = useAuth();
+  const {
+    signIn,
+    signUp,
+    resetPassword,
+    configError,
+    configWarning,
+    demoMode,
+    diagnosticMode,
+    enableDiagnostics,
+  } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -113,6 +122,16 @@ export default function Login() {
             {demoMode
               ? 'Demo mode is enabled. Use any email and password to explore the dashboard UI.'
               : 'Diagnostics mode is active. Authentication is bypassed so you can review the interface while credentials are fixed.'}
+          </motion.div>
+        )}
+
+        {!diagnosticMode && configWarning && (
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 text-sm text-blue-700"
+          >
+            {configWarning}
           </motion.div>
         )}
 

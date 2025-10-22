@@ -7,12 +7,18 @@ import {
   onAuthStateChanged,
   sendPasswordResetEmail,
 } from 'firebase/auth';
-import { auth, firebaseConfigError, isDemoAuthEnabled } from '../lib/firebase';
+import {
+  auth,
+  firebaseConfigError,
+  firebaseConfigWarning,
+  isDemoAuthEnabled,
+} from '../lib/firebase';
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
   configError: string | null;
+  configWarning: string | null;
   demoMode: boolean;
   diagnosticMode: boolean;
   enableDiagnostics: () => void;
@@ -45,6 +51,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     isDemoAuthEnabled ? null : firebaseConfigError,
   );
   const [diagnosticMode, setDiagnosticMode] = useState(false);
+  const [configWarning] = useState<string | null>(firebaseConfigWarning);
 
   useEffect(() => {
     if (isDemoAuthEnabled) {
@@ -122,6 +129,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     user,
     loading,
     configError,
+    configWarning,
     demoMode: isDemoAuthEnabled,
     diagnosticMode,
     enableDiagnostics,
