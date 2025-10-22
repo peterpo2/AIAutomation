@@ -40,6 +40,8 @@ RUN npm run build
 FROM node:20-alpine AS backend-build
 WORKDIR /backend
 
+RUN apk add --no-cache openssl1.1-compat
+
 COPY server/package*.json ./
 RUN npm ci --legacy-peer-deps
 
@@ -65,6 +67,8 @@ FROM node:20-alpine AS backend
 WORKDIR /app
 
 ENV NODE_ENV=production
+
+RUN apk add --no-cache openssl1.1-compat
 
 COPY --from=backend-build /backend/node_modules ./node_modules
 COPY --from=backend-build /backend/dist ./dist
