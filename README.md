@@ -57,6 +57,14 @@ The file includes:
 - **Backend variables** (`DATABASE_URL`, `DROPBOX_*`, `OPENAI_API_KEY`, etc.).
 - **Database credentials** (`POSTGRES_*`) reused by both the app and the bundled Postgres container.
 
+### Demo mode without Firebase
+
+If you want to explore the UI before wiring up Firebase authentication, set `VITE_ENABLE_DEMO_AUTH=true` in your environment (this flag defaults to `true` in `docker-compose.yml`).
+
+- The frontend automatically signs you in as a demo user and labels the UI accordingly.
+- Email/password actions are mocked locally, so authentication does not reach Firebase.
+- Disable the flag once you have real Firebase credentials to restore production behaviour.
+
 > **Tip:** The backend automatically promotes the Firebase user whose email or UID matches `FIREBASE_ADMIN_EMAIL` / `FIREBASE_ADMIN_UID` to the `Admin` role inside PostgreSQL.
 
 ## Run with Docker (local or VPS)

@@ -12,7 +12,7 @@ export default function Login() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
-  const { signIn, signUp, resetPassword, configError } = useAuth();
+  const { signIn, signUp, resetPassword, configError, demoMode } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -96,6 +96,16 @@ export default function Login() {
               : 'Sign in to continue to your dashboard'}
           </p>
         </div>
+
+        {demoMode && (
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-sm text-amber-700"
+          >
+            Demo mode is enabled. Use any email and password to explore the dashboard UI.
+          </motion.div>
+        )}
 
         {error && (
           <motion.div

@@ -7,12 +7,13 @@ import {
   onAuthStateChanged,
   sendPasswordResetEmail,
 } from 'firebase/auth';
-import { auth, firebaseConfigError } from '../lib/firebase';
+import { auth, firebaseConfigError, isDemoAuthEnabled } from '../lib/firebase';
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
   configError: string | null;
+  demoMode: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -30,11 +31,24 @@ export const useAuth = () => {
 };
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [configError, setConfigError] = useState<string | null>(firebaseConfigError);
+  const demoUser = {
+    uid: 'demo-user',
+    email: 'demo@smartops.local',
+    displayName: 'Demo User',
+  } as unknown as User;
+
+  const [user, setUser] = useState<User | null>(isDemoAuthEnabled ? demoUser : null);
+  const [loading, setLoading] = useState(!isDemoAuthEnabled);
+  const [configError, setConfigError] = useState<string | null>(
+    isDemoAuthEnabled ? null : firebaseConfigError,
+  );
 
   useEffect(() => {
+    if (isDemoAuthEnabled) {
+      setLoading(false);
+      return;
+    }
+
     if (!auth) {
       setConfigError((prev) => prev ?? 'Firebase authentication is not configured.');
       setLoading(false);
@@ -50,6 +64,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const signIn = async (email: string, password: string) => {
+    if (isDemoAuthEnabled) {
+      setUser(demoUser);
+      return;
+    }
     if (!auth) {
       throw new Error(configError ?? 'Authentication service is not configured.');
     }
@@ -57,6 +75,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const signUp = async (email: string, password: string) => {
+    if (isDemoAuthEnabled) {
+      setUser(demoUser);
+      return;
+    }
     if (!auth) {
       throw new Error(configError ?? 'Authentication service is not configured.');
     }
@@ -64,6 +86,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const signOut = async () => {
+    if (isDemoAuthEnabled) {
+      setUser(null);
+      return;
+    }
     if (!auth) {
       throw new Error(configError ?? 'Authentication service is not configured.');
     }
@@ -71,6 +97,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const resetPassword = async (email: string) => {
+    if (isDemoAuthEnabled) {
+      return;
+    }
     if (!auth) {
       throw new Error(configError ?? 'Authentication service is not configured.');
     }
@@ -81,6 +110,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     user,
     loading,
     configError,
+    demoMode: isDemoAuthEnabled,
     signIn,
     signUp,
     signOut,

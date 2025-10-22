@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react';
 import { useState } from 'react';
+import { useAuth } from '../context/AuthContext';
 
 interface LayoutProps {
   children: ReactNode;
@@ -20,6 +21,7 @@ interface LayoutProps {
 export default function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { demoMode } = useAuth();
 
   const navItems = [
     { path: '/dashboard', label: 'Dashboard', icon: Home },
@@ -97,6 +99,12 @@ export default function Layout({ children }: LayoutProps) {
               <div className="flex-1 lg:flex-none" />
 
               <div className="flex items-center gap-3">
+                {demoMode && (
+                  <span className="hidden sm:inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-medium bg-amber-100 text-amber-700 border border-amber-200">
+                    <span className="inline-flex h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+                    Demo mode
+                  </span>
+                )}
                 <div className="w-8 h-8 bg-red-500 rounded-full flex items-center justify-center">
                   <span className="text-white text-sm font-bold">SO</span>
                 </div>
