@@ -3,6 +3,7 @@ import { getFirebaseAdmin } from './firebase.service.js';
 import { prisma } from './prisma.client.js';
 import { DEFAULT_ROLE, USER_ROLES, type UserRole } from './permissions.js';
 import { normalizeEmail } from './email.utils.js';
+import { ensureNormalizedEmail, findUserByEmailInsensitive } from './user.repository.js';
 import {
   getAdminEmail,
   getAdminUid,
@@ -42,7 +43,7 @@ export const firebaseAuthMiddleware = async (
     }
 
     const normalizedEmail = normalizeEmail(email);
-    let user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+    let user = await findUserByEmailInsensitive(normalizedEmail);
     const adminEmail = getAdminEmail();
     const adminUid = getAdminUid();
     const ceoEmail = getCeoEmail();
@@ -62,6 +63,8 @@ export const firebaseAuthMiddleware = async (
         },
       });
     } else {
+      user = await ensureNormalizedEmail(user, normalizedEmail);
+
       const normalizedRole = USER_ROLES.includes(user.role as UserRole) ? (user.role as UserRole) : DEFAULT_ROLE;
       let nextRole = normalizedRole;
 
@@ -73,7 +76,7 @@ export const firebaseAuthMiddleware = async (
 
       if (nextRole !== normalizedRole) {
         user = await prisma.user.update({
-          where: { email: normalizedEmail },
+          where: { id: user.id },
           data: { role: nextRole },
         });
       }

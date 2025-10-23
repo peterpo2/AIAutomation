@@ -12,6 +12,7 @@ import {
 import { getImmutableAssignments, getAdminEmail, getCeoEmail } from './reserved-users.js';
 import { getFirebaseAdmin } from './firebase.service.js';
 import { normalizeEmail } from './email.utils.js';
+import { findUserByEmailInsensitive, ensureNormalizedEmail, isUniqueConstraintError } from './user.repository.js';
 
 class HttpError extends Error {
   status: number;
@@ -108,7 +109,7 @@ authRouter.get('/me', async (req: AuthenticatedRequest, res) => {
   }
 
   const normalizedEmail = normalizeEmail(email);
-  const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+  const user = await findUserByEmailInsensitive(normalizedEmail);
   const role = USER_ROLES.includes(user?.role as UserRole) ? (user?.role as UserRole) : DEFAULT_ROLE;
 
   const immutableAssignments = getImmutableAssignments();
@@ -169,13 +170,27 @@ authRouter.post('/role', async (req: AuthenticatedRequest, res) => {
     throw error;
   }
 
-  const user = await prisma.user.upsert({
-    where: { email: normalizedEmail },
-    update: { role },
-    create: { email: normalizedEmail, role },
+  let user = await findUserByEmailInsensitive(normalizedEmail);
+  if (!user) {
+    const created = await prisma.user.create({
+      data: {
+        email: normalizedEmail,
+        role,
+      },
+    });
+    return res.json({ email: created.email, role: created.role });
+  }
+
+  if (user.email !== normalizedEmail) {
+    user = await ensureNormalizedEmail(user, normalizedEmail);
+  }
+
+  const updated = await prisma.user.update({
+    where: { id: user.id },
+    data: { role },
   });
 
-  return res.json({ email: user.email, role: user.role });
+  return res.json({ email: updated.email, role: updated.role });
 });
 
 authRouter.post('/users', async (req: AuthenticatedRequest, res) => {
@@ -188,7 +203,7 @@ authRouter.post('/users', async (req: AuthenticatedRequest, res) => {
     email?: string;
     password?: string;
     role?: UserRole;
-    displayName?: string;
+    displayName?: string | null;
   };
 
   if (!email || !password || !role) {
@@ -200,7 +215,7 @@ authRouter.post('/users', async (req: AuthenticatedRequest, res) => {
   }
 
   const normalizedEmail = normalizeEmail(email);
-  const sanitizedDisplayName = displayName?.trim();
+  const sanitizedDisplayName = typeof displayName === 'string' ? displayName.trim() : '';
 
   try {
     ensureReservedRoleCompliance(requesterRole, normalizedEmail, role);
@@ -211,7 +226,7 @@ authRouter.post('/users', async (req: AuthenticatedRequest, res) => {
     throw error;
   }
 
-  const existingUser = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+  const existingUser = await findUserByEmailInsensitive(normalizedEmail);
   if (existingUser) {
     return res.status(409).json({ message: 'A user with this email already exists.' });
   }
@@ -229,7 +244,7 @@ authRouter.post('/users', async (req: AuthenticatedRequest, res) => {
       emailVerified: true,
     };
 
-    if (sanitizedDisplayName && sanitizedDisplayName.length > 0) {
+    if (sanitizedDisplayName.length > 0) {
       createPayload.displayName = sanitizedDisplayName;
     }
 
@@ -243,14 +258,21 @@ authRouter.post('/users', async (req: AuthenticatedRequest, res) => {
     return res.status(500).json({ message: 'Unable to create user at this time.' });
   }
 
-  const created = await prisma.user.create({
-    data: {
-      email: normalizedEmail,
-      role,
-    },
-  });
+  try {
+    const created = await prisma.user.create({
+      data: {
+        email: normalizedEmail,
+        role,
+      },
+    });
 
-  return res.status(201).json(mapManagedUser(created, requesterRole));
+    return res.status(201).json(mapManagedUser(created, requesterRole));
+  } catch (error) {
+    if (isUniqueConstraintError(error)) {
+      return res.status(409).json({ message: 'A user with this email already exists.' });
+    }
+    throw error;
+  }
 });
 
 authRouter.patch('/users/:id', async (req: AuthenticatedRequest, res) => {
@@ -264,7 +286,7 @@ authRouter.patch('/users/:id', async (req: AuthenticatedRequest, res) => {
     email?: string;
     role?: UserRole;
     password?: string;
-    displayName?: string;
+    displayName?: string | null;
   };
 
   const userRecord = await prisma.user.findUnique({ where: { id } });
@@ -283,15 +305,14 @@ authRouter.patch('/users/:id', async (req: AuthenticatedRequest, res) => {
   const normalizedAdminEmail = adminEmail ? normalizeEmail(adminEmail) : null;
   const normalizedCeoEmail = ceoEmail ? normalizeEmail(ceoEmail) : null;
   const existingEmailNormalized = normalizeEmail(userRecord.email);
-  const shouldSanitizeExistingEmail = userRecord.email !== existingEmailNormalized;
 
   if (email && normalizeEmail(email) !== existingEmailNormalized) {
     if (existingEmailNormalized === normalizedAdminEmail || existingEmailNormalized === normalizedCeoEmail) {
       return res.status(400).json({ message: 'This account email is reserved and cannot be changed.' });
     }
 
-    const emailConflict = await prisma.user.findUnique({ where: { email: normalizeEmail(email) } });
-    if (emailConflict && emailConflict.id !== id) {
+    const emailConflict = await findUserByEmailInsensitive(email, id);
+    if (emailConflict) {
       return res.status(409).json({ message: 'A user with this email already exists.' });
     }
   }
@@ -329,8 +350,12 @@ authRouter.patch('/users/:id', async (req: AuthenticatedRequest, res) => {
     updatePayload.password = password;
   }
   if (displayName !== undefined) {
-    const trimmedDisplayName = displayName.trim();
-    updatePayload.displayName = trimmedDisplayName.length > 0 ? trimmedDisplayName : null;
+    if (displayName === null) {
+      updatePayload.displayName = null;
+    } else {
+      const trimmedDisplayName = displayName.trim();
+      updatePayload.displayName = trimmedDisplayName.length > 0 ? trimmedDisplayName : null;
+    }
   }
 
   if (firebaseUser && Object.keys(updatePayload).length > 0) {
@@ -342,15 +367,22 @@ authRouter.patch('/users/:id', async (req: AuthenticatedRequest, res) => {
     }
   }
 
-  const updated = await prisma.user.update({
-    where: { id },
-    data: {
-      email: updatePayload.email ?? (shouldSanitizeExistingEmail ? existingEmailNormalized : userRecord.email),
-      role: nextRole ?? currentRole,
-    },
-  });
+  try {
+    const updated = await prisma.user.update({
+      where: { id },
+      data: {
+        email: updatePayload.email ?? userRecord.email,
+        role: nextRole ?? currentRole,
+      },
+    });
 
-  return res.json(mapManagedUser(updated, requesterRole));
+    return res.json(mapManagedUser(updated, requesterRole));
+  } catch (error) {
+    if (isUniqueConstraintError(error)) {
+      return res.status(409).json({ message: 'A user with this email already exists.' });
+    }
+    throw error;
+  }
 });
 
 authRouter.delete('/users/:id', async (req: AuthenticatedRequest, res) => {
@@ -404,21 +436,22 @@ authRouter.patch('/me', async (req: AuthenticatedRequest, res) => {
   const { email, password, displayName } = req.body as {
     email?: string;
     password?: string;
-    displayName?: string;
+    displayName?: string | null;
   };
 
-  if (!email && !password && !displayName) {
+  if (!email && !password && displayName === undefined) {
     return res.status(400).json({ message: 'No updates provided.' });
   }
 
   const firebaseAdmin = getFirebaseAdmin();
-  const updatePayload: { email?: string; password?: string; displayName?: string } = {};
+  const updatePayload: { email?: string; password?: string; displayName?: string | null } = {};
 
   const adminEmail = getAdminEmail();
   const ceoEmail = getCeoEmail();
   const normalizedAdminEmail = adminEmail ? normalizeEmail(adminEmail) : null;
   const normalizedCeoEmail = ceoEmail ? normalizeEmail(ceoEmail) : null;
   const normalizedCurrentEmail = normalizeEmail(requester.email);
+  const currentRecord = await findUserByEmailInsensitive(requester.email);
 
   if (email && normalizeEmail(email) !== normalizedCurrentEmail) {
     if (
@@ -430,8 +463,8 @@ authRouter.patch('/me', async (req: AuthenticatedRequest, res) => {
       return res.status(400).json({ message: 'Reserved workspace emails cannot be reassigned.' });
     }
 
-    const existing = await prisma.user.findUnique({ where: { email: normalizeEmail(email) } });
-    if (existing) {
+    const existing = await findUserByEmailInsensitive(email);
+    if (existing && (!currentRecord || existing.id !== currentRecord.id)) {
       return res.status(409).json({ message: 'A user with this email already exists.' });
     }
 
@@ -441,8 +474,13 @@ authRouter.patch('/me', async (req: AuthenticatedRequest, res) => {
   if (password) {
     updatePayload.password = password;
   }
-  if (displayName) {
-    updatePayload.displayName = displayName;
+  if (displayName !== undefined) {
+    if (displayName === null) {
+      updatePayload.displayName = null;
+    } else {
+      const trimmedDisplayName = displayName.trim();
+      updatePayload.displayName = trimmedDisplayName.length > 0 ? trimmedDisplayName : null;
+    }
   }
 
   try {
@@ -453,20 +491,32 @@ authRouter.patch('/me', async (req: AuthenticatedRequest, res) => {
   }
 
   if (updatePayload.email) {
-    await prisma.user.updateMany({
-      where: { email: normalizedCurrentEmail },
-      data: { email: updatePayload.email },
-    });
+    if (currentRecord) {
+      try {
+        await prisma.user.update({
+          where: { id: currentRecord.id },
+          data: { email: updatePayload.email },
+        });
+      } catch (error) {
+        if (isUniqueConstraintError(error)) {
+          return res.status(409).json({ message: 'A user with this email already exists.' });
+        }
+        throw error;
+      }
+    } else {
+      await prisma.user.updateMany({
+        where: { email: normalizedCurrentEmail },
+        data: { email: updatePayload.email },
+      });
+    }
   }
 
   const lookupEmail = normalizeEmail(updatePayload.email ?? requester.email);
-  const updatedProfile = await prisma.user.findUnique({
-    where: { email: lookupEmail },
-  });
+  const updatedProfile = await findUserByEmailInsensitive(lookupEmail);
 
   const role = toRole(updatedProfile?.role ?? null);
   return res.json({
-    email: updatePayload.email ?? normalizeEmail(requester.email),
+    email: updatedProfile?.email ?? normalizeEmail(requester.email),
     role,
     createdAt: updatedProfile?.createdAt ?? null,
     permissions: ROLE_PERMISSIONS[role],
