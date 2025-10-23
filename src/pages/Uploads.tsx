@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Video, Save, Trash2, Edit2, AlertTriangle } from 'lucide-react';
-import { supabase, supabaseInitError, VideoMetadata, VIDEO_STATUSES } from '../lib/supabase';
+import { Video, Save, Trash2, Edit2 } from 'lucide-react';
+import { VIDEO_STATUSES, type VideoMetadata, type VideoStatus } from '../lib/supabase';
+import { fetchUploads, createUpload, updateUpload, deleteUpload } from '../lib/uploadsApi';
 import { useAuth } from '../context/AuthContext';
 import type { DropboxFile } from '../lib/dropbox';
 
@@ -9,15 +10,15 @@ const LOCAL_QUEUE_KEY = 'upload_queue_local_drafts';
 
 type VideoInput = Partial<VideoMetadata> | VideoMetadata;
 
-type VideoStatus = (typeof VIDEO_STATUSES)[number];
-
 const sanitizeVideoMetadata = (video: VideoInput): VideoMetadata => {
   const rawSize = typeof video.file_size === 'string' ? Number(video.file_size) : video.file_size;
   const numericSize = Number.isFinite(rawSize ?? NaN) ? Number(rawSize) : 0;
   const allowedStatuses = new Set<VideoStatus>(VIDEO_STATUSES);
+  const rawStatus = typeof video.status === 'string' ? video.status.toLowerCase() : null;
+  const normalizedStatus = rawStatus === 'scheduled' ? 'ready' : rawStatus;
   const statusValue =
-    typeof video.status === 'string' && allowedStatuses.has(video.status as VideoStatus)
-      ? (video.status as VideoStatus)
+    normalizedStatus && allowedStatuses.has(normalizedStatus as VideoStatus)
+      ? (normalizedStatus as VideoStatus)
       : 'pending';
 
   return {
@@ -111,29 +112,11 @@ const formatFileSize = (size?: number | null) => {
 
 const getVideoKey = (video: VideoMetadata, fallback: number) => video.id ?? video.dropbox_id ?? fallback;
 
-const buildSupabasePayload = (video: VideoMetadata, userId: string) => ({
-  file_path: video.file_path ?? '',
-  file_name: video.file_name ?? 'Untitled video',
-  file_size: video.file_size ?? 0,
-  brand: video.brand ?? '',
-  caption: video.caption ?? '',
-  category: video.category ?? '',
-  dropbox_id: video.dropbox_id,
-  thumbnail_url: video.thumbnail_url,
-  status: video.status ?? 'pending',
-  user_id: userId,
-});
-
 export default function Uploads() {
   const { user } = useAuth();
   const [videos, setVideos] = useState<VideoMetadata[]>([]);
   const [editingId, setEditingId] = useState<string | number | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const supabaseConfigMessage =
-    supabaseInitError?.message ??
-    (!supabase
-      ? 'Supabase client is not configured. Please define VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY before building the front end.'
-      : '');
 
   useEffect(() => {
     const drafts = readLocalDrafts();
@@ -142,28 +125,29 @@ export default function Uploads() {
     }
   }, []);
 
+  useEffect(() => {
+    if (!user) {
+      setErrorMessage('Sign in to sync uploads with the SmartOps backend. Drafts stay on this device until you reconnect.');
+    }
+  }, [user]);
+
   const loadVideos = useCallback(async () => {
-    if (!user || !supabase) return;
+    if (!user) return;
+
     try {
-      const { data, error } = await supabase
-        .from('videos')
-        .select('*')
-        .eq('user_id', user.uid)
-        .order('created_at', { ascending: false });
+      const token = await user.getIdToken();
+      const remoteVideos = await fetchUploads(token);
 
-      if (error) {
-        throw error;
-      }
-
-      const supabaseVideos = mergeVideoLists(Array.isArray(data) ? (data as VideoInput[]) : []);
       setVideos((prev) => {
         const drafts = prev.filter((video) => !video.id);
-        return mergeVideoLists(supabaseVideos, drafts);
+        return mergeVideoLists(remoteVideos, drafts);
       });
       setErrorMessage(null);
     } catch (error) {
-      console.error('Failed to load videos from Supabase', error);
-      setErrorMessage('Unable to reach Supabase. Any new uploads will be kept locally until the connection is restored.');
+      console.error('Failed to load videos from backend', error);
+      setErrorMessage(
+        'Unable to reach the uploads service. Any new uploads will be kept locally until the connection is restored.',
+      );
     }
   }, [user]);
 
@@ -202,53 +186,28 @@ export default function Uploads() {
   const handleSave = async (video: VideoMetadata, index: number) => {
     const sanitized = sanitizeVideoMetadata(video);
 
-    if (!user || !supabase) {
+    if (!user) {
       setVideos((prev) => {
         const next = [...prev];
         next[index] = sanitized;
         return next;
       });
       setEditingId(null);
-      setErrorMessage((prev) => prev ?? 'Supabase is not configured. Changes were saved locally.');
+      setErrorMessage((prev) => prev ?? 'Sign in to sync uploads with the SmartOps backend. Changes were saved locally.');
       return;
     }
 
     try {
-      if (sanitized.id) {
-        const { data, error } = await supabase
-          .from('videos')
-          .update(buildSupabasePayload(sanitized, user.uid))
-          .eq('id', sanitized.id)
-          .select();
+      const token = await user.getIdToken();
+      const persisted = sanitized.id
+        ? await updateUpload(token, String(sanitized.id), sanitized)
+        : await createUpload(token, sanitized);
 
-        if (error) {
-          throw error;
-        }
-
-        const updated = data?.[0] ? sanitizeVideoMetadata(data[0] as VideoInput) : sanitized;
-        setVideos((prev) => {
-          const next = [...prev];
-          next[index] = updated;
-          return next;
-        });
-      } else {
-        const { data, error } = await supabase
-          .from('videos')
-          .insert([buildSupabasePayload(sanitized, user.uid)])
-          .select();
-
-        if (error) {
-          throw error;
-        }
-
-        const inserted = data?.[0] ? sanitizeVideoMetadata(data[0] as VideoInput) : sanitized;
-        setVideos((prev) => {
-          const next = [...prev];
-          next[index] = inserted;
-          return next;
-        });
-      }
-
+      setVideos((prev) => {
+        const next = [...prev];
+        next[index] = sanitizeVideoMetadata(persisted);
+        return next;
+      });
       setEditingId(null);
       setErrorMessage(null);
     } catch (error) {
@@ -258,22 +217,22 @@ export default function Uploads() {
         next[index] = sanitized;
         return next;
       });
-      setErrorMessage('Failed to sync with Supabase. The latest changes were saved locally and will retry when available.');
+      setErrorMessage(
+        'Failed to sync with the SmartOps backend. The latest changes were saved locally and will retry when available.',
+      );
     }
   };
 
   const handleDelete = async (video: VideoMetadata, index: number) => {
     setVideos((prev) => prev.filter((_, i) => i !== index));
 
-    if (video.id && supabase && user) {
+    if (video.id && user) {
       try {
-        const { error } = await supabase.from('videos').delete().eq('id', video.id);
-        if (error) {
-          throw error;
-        }
+        const token = await user.getIdToken();
+        await deleteUpload(token, String(video.id));
       } catch (error) {
-        console.error('Failed to delete video from Supabase', error);
-        setErrorMessage('Could not remove the video from Supabase. It has been removed locally.');
+        console.error('Failed to delete video from backend', error);
+        setErrorMessage('Could not remove the video from the SmartOps backend. It has been removed locally.');
       }
     }
   };
@@ -295,36 +254,6 @@ export default function Uploads() {
       </div>
 
       <div className="space-y-4">
-        {!supabase && (
-          <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 flex gap-3">
-            <AlertTriangle className="w-6 h-6 text-yellow-600 flex-shrink-0" />
-            <div className="text-sm text-yellow-800 space-y-2">
-              <div className="font-semibold">Supabase configuration required</div>
-              <p>
-                {supabaseConfigMessage ||
-                  'The Supabase client could not be initialized because required environment variables are missing.'}
-              </p>
-              <div>
-                Ensure the following variables are defined before building the frontend (see <code>.env.example</code>):
-                <ul className="list-disc list-inside mt-1">
-                  <li>
-                    <code>VITE_SUPABASE_URL</code>
-                  </li>
-                  <li>
-                    <code>VITE_SUPABASE_ANON_KEY</code>
-                  </li>
-                </ul>
-                <p className="mt-2">
-                  After updating your environment, rebuild the Docker images or restart the Vite dev server so the new variables are picked up.
-                </p>
-                <p className="mt-2">
-                  You can continue adding uploads—they will stay in your browser until the connection is configured.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
         {errorMessage && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
             {errorMessage}

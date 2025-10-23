@@ -40,7 +40,7 @@ if (missingVars.length > 0) {
 export const supabase = supabaseClient;
 export const supabaseInitError = initializationError;
 
-export const VIDEO_STATUSES = ['pending', 'scheduled', 'uploaded'] as const;
+export const VIDEO_STATUSES = ['pending', 'ready', 'uploaded'] as const;
 export type VideoStatus = (typeof VIDEO_STATUSES)[number];
 
 export type VideoMetadata = {
