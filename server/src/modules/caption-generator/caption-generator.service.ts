@@ -1,6 +1,4 @@
 import OpenAI from 'openai';
-import { Video } from '@prisma/client';
-
 import { prisma } from '../auth/prisma.client.js';
 import { notificationsService } from '../notifications/notifications.service.js';
 
@@ -74,7 +72,9 @@ const parseStoredHashtags = (value?: string | null) => {
   }
 };
 
-const buildPrompt = (video: Video, keywords: string[] = []) => {
+type VideoRecord = NonNullable<Awaited<ReturnType<typeof prisma.video.findUnique>>>;
+
+const buildPrompt = (video: VideoRecord, keywords: string[] = []) => {
   const keywordSection =
     keywords.length > 0
       ? `Optional focus keywords: ${keywords.join(', ')}.`
@@ -95,7 +95,7 @@ const getVideoById = async (videoId: string) => {
   return video;
 };
 
-const shouldSkipGeneration = (video: Video, options?: GenerateOptions) => {
+const shouldSkipGeneration = (video: VideoRecord, options?: GenerateOptions) => {
   if (options?.force) {
     return false;
   }
@@ -108,7 +108,7 @@ const shouldSkipGeneration = (video: Video, options?: GenerateOptions) => {
   return true;
 };
 
-const storeResult = async (video: Video, caption: string, hashtags: string[]) => {
+const storeResult = async (video: VideoRecord, caption: string, hashtags: string[]) => {
   const generatedAt = new Date();
   const data = await prisma.video.update({
     where: { id: video.id },
@@ -121,7 +121,7 @@ const storeResult = async (video: Video, caption: string, hashtags: string[]) =>
   return { data, generatedAt };
 };
 
-const notify = async (video: Video) => {
+const notify = async (video: VideoRecord) => {
   await notificationsService.sendPush(
     'caption:generated',
     'AI Caption Ready',
@@ -129,7 +129,7 @@ const notify = async (video: Video) => {
   );
 };
 
-const runGeneration = async (video: Video, options?: GenerateOptions): Promise<CaptionResult> => {
+const runGeneration = async (video: VideoRecord, options?: GenerateOptions): Promise<CaptionResult> => {
   if (shouldSkipGeneration(video, options)) {
     return {
       videoId: video.id,
@@ -171,7 +171,7 @@ export const captionGeneratorService = {
     return runGeneration(video, options);
   },
 
-  async generateForVideo(video: Video, options?: GenerateOptions) {
+  async generateForVideo(video: VideoRecord, options?: GenerateOptions) {
     return runGeneration(video, options);
   },
 

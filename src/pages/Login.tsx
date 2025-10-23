@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { motion } from 'framer-motion';
@@ -12,8 +12,14 @@ export default function Login() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
-  const { signIn, signUp, resetPassword, configError } = useAuth();
+  const { signIn, signUp, resetPassword, configError, user } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (user) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [user, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,10 +39,10 @@ export default function Login() {
         setShowReset(false);
       } else if (isSignUp) {
         await signUp(email, password);
-        navigate('/dashboard');
+        navigate('/dashboard', { replace: true });
       } else {
         await signIn(email, password);
-        navigate('/dashboard');
+        navigate('/dashboard', { replace: true });
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Authentication failed';
