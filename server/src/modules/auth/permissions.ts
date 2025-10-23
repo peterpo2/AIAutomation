@@ -97,6 +97,8 @@ export const ROLE_PERMISSIONS: Record<UserRole, PermissionDefinition['key'][]> =
     'manageUploads',
     'viewReports',
     'manageSettings',
+    'manageIntegrations',
+    'configureAutomation',
     'approveCampaigns',
     'viewFinancials',
     'receiveAlerts',

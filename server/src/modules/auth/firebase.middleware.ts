@@ -2,6 +2,12 @@ import { Request, Response, NextFunction } from 'express';
 import { getFirebaseAdmin } from './firebase.service.js';
 import { prisma } from './prisma.client.js';
 import { DEFAULT_ROLE, USER_ROLES, type UserRole } from './permissions.js';
+import {
+  getAdminEmail,
+  getAdminUid,
+  getCeoEmail,
+  getCeoUid,
+} from './reserved-users.js';
 
 const MAX_USER_SEATS = Number(process.env.SMARTOPS_MAX_USERS ?? '5');
 const RESERVED_ROLES: UserRole[] = ['Admin', 'CEO'];
@@ -39,13 +45,13 @@ export const firebaseAuthMiddleware = async (
     }
 
     let user = await prisma.user.findUnique({ where: { email } });
-    const envAdminEmail = process.env.FIREBASE_ADMIN_EMAIL;
-    const envAdminUid = process.env.FIREBASE_ADMIN_UID;
-    const envCeoEmail = process.env.FIREBASE_CEO_EMAIL;
-    const envCeoUid = process.env.FIREBASE_CEO_UID;
+    const adminEmail = getAdminEmail();
+    const adminUid = getAdminUid();
+    const ceoEmail = getCeoEmail();
+    const ceoUid = getCeoUid();
 
-    const isEnvAdmin = email === envAdminEmail || (!!envAdminUid && decoded.uid === envAdminUid);
-    const isEnvCeo = email === envCeoEmail || (!!envCeoUid && decoded.uid === envCeoUid);
+    const isEnvAdmin = (!!adminEmail && email === adminEmail) || (!!adminUid && decoded.uid === adminUid);
+    const isEnvCeo = (!!ceoEmail && email === ceoEmail) || (!!ceoUid && decoded.uid === ceoUid);
 
     const resolvedRole: UserRole = isEnvAdmin ? 'Admin' : isEnvCeo ? 'CEO' : DEFAULT_ROLE;
     if (!user) {

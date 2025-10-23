@@ -86,17 +86,32 @@ docker compose logs -f
 
 ## Demo Workspace Accounts
 
-Provision the following users in the Firebase console (Authentication → Users) to mirror the five-seat SmartOps workspace. Set `FIREBASE_ADMIN_EMAIL`/`FIREBASE_ADMIN_UID` and `FIREBASE_CEO_EMAIL`/`FIREBASE_CEO_UID` so the backend keeps those roles immutable.
+The backend automatically bootstraps the demo workspace accounts the first time it starts (using your Firebase Admin credentials). You can override any email or password via environment variables, but the defaults below are created if you leave the variables unset. Set `FIREBASE_ADMIN_EMAIL`/`FIREBASE_ADMIN_UID` and `FIREBASE_CEO_EMAIL`/`FIREBASE_CEO_UID` to keep those identities immutable across sessions.
 
 | Role | Email | Password | Notes |
 | --- | --- | --- | --- |
 | Admin | `admin@smartops.test` | `DemoAdmin123!` | Full platform control, reserved seat |
 | CEO | `ceo@smartops.test` | `DemoCeo123!` | Executive overview with approvals & reports |
-| Team | `marketing@smartops.test` | `DemoTeam123!` | Standard user for campaign execution |
-| Team | `creative@smartops.test` | `DemoTeam123!` | Standard user for asset preparation |
-| Client | `client@smartops.test` | `DemoClient123!` | Read-only stakeholder access |
+| Team | `marketing@smartops.test` | `DemoTeam123!` | Marketing strategist seat (standard permissions) |
+| Team | `creative@smartops.test` | `DemoTeam123!` | Creative production seat (standard permissions) |
+| Team | `operations@smartops.test` | `DemoOps123!` | Operations specialist seat (standard permissions) |
 
 > Invite additional team/client users only after freeing a standard seat—the workspace is capped at five concurrent accounts.
+
+### Environment overrides for demo seats
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `FIREBASE_ADMIN_EMAIL` / `FIREBASE_ADMIN_UID` | Locks the administrator identity (email or UID) | `admin@smartops.test` |
+| `FIREBASE_ADMIN_PASSWORD` | Password used when auto-creating the admin Firebase user | `DemoAdmin123!` |
+| `FIREBASE_CEO_EMAIL` / `FIREBASE_CEO_UID` | Locks the CEO identity (email or UID) | `ceo@smartops.test` |
+| `FIREBASE_CEO_PASSWORD` | Password used when auto-creating the CEO Firebase user | `DemoCeo123!` |
+| `SMARTOPS_TEAM_[1-3]_EMAIL` | Email for each standard workspace seat | marketing/creative/operations defaults |
+| `SMARTOPS_TEAM_[1-3]_PASSWORD` | Password for each standard seat | `DemoTeam123!`, `DemoTeam123!`, `DemoOps123!` |
+| `SMARTOPS_TEAM_[1-3]_ROLE` | Optional override to switch a standard seat to `Team` or `Client` | `Team` |
+| `SMARTOPS_TEAM_[1-3]_NAME` | Optional display name stored in Firebase for that user | role-specific defaults |
+
+All seeded accounts are marked as email-verified and mirrored into PostgreSQL with their prescribed roles, so you can sign in immediately after `docker compose up -d --build` finishes.
 
 ## Database Schema (Prisma)
 

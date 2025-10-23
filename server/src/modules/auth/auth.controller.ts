@@ -9,6 +9,7 @@ import {
   USER_ROLES,
   type UserRole,
 } from './permissions.js';
+import { getImmutableAssignments, getAdminEmail, getCeoEmail } from './reserved-users.js';
 
 const MAX_USER_SEATS = Number(process.env.SMARTOPS_MAX_USERS ?? '5');
 const RESERVED_ROLES: UserRole[] = ['Admin', 'CEO'];
@@ -17,14 +18,12 @@ const MAX_STANDARD_USERS = Math.max(MAX_USER_SEATS - RESERVED_ROLES.length, 0);
 export const authRouter = Router();
 
 authRouter.get('/permissions', (_req, res) => {
+  const immutableAssignments = getImmutableAssignments();
   return res.json({
     roles: ROLE_DEFINITIONS,
     permissions: PERMISSION_DEFINITIONS,
     rolePermissions: ROLE_PERMISSIONS,
-    immutableAssignments: {
-      adminEmail: process.env.FIREBASE_ADMIN_EMAIL ?? null,
-      ceoEmail: process.env.FIREBASE_CEO_EMAIL ?? null,
-    },
+    immutableAssignments,
   });
 });
 
@@ -39,12 +38,16 @@ authRouter.get('/me', async (req: AuthenticatedRequest, res) => {
   const user = await prisma.user.findUnique({ where: { email } });
   const role = USER_ROLES.includes(user?.role as UserRole) ? (user?.role as UserRole) : DEFAULT_ROLE;
 
+  const immutableAssignments = getImmutableAssignments();
+
   return res.json({
     email: user?.email ?? email,
     role,
     createdAt: user?.createdAt ?? null,
     permissions: ROLE_PERMISSIONS[role],
-    immutableRole: email === process.env.FIREBASE_ADMIN_EMAIL,
+    immutableRole:
+      (immutableAssignments.adminEmail && email === immutableAssignments.adminEmail) ||
+      (immutableAssignments.ceoEmail && email === immutableAssignments.ceoEmail),
   });
 });
 
@@ -68,6 +71,8 @@ authRouter.get('/users', async (req: AuthenticatedRequest, res) => {
     }),
   ]);
 
+  const immutableAssignments = getImmutableAssignments();
+
   return res.json({
     users: users.map((user: { id: string; email: string; role: string; createdAt: Date }) => {
       const role = USER_ROLES.includes(user.role as UserRole) ? (user.role as UserRole) : DEFAULT_ROLE;
@@ -76,8 +81,9 @@ authRouter.get('/users', async (req: AuthenticatedRequest, res) => {
         email: user.email,
         role,
         createdAt: user.createdAt,
-        immutable: user.email === process.env.FIREBASE_ADMIN_EMAIL,
-        isCeo: user.email === process.env.FIREBASE_CEO_EMAIL,
+        immutable:
+          user.email === immutableAssignments.adminEmail || user.email === immutableAssignments.ceoEmail,
+        isCeo: user.email === immutableAssignments.ceoEmail,
       };
     }),
     seats: {
@@ -107,8 +113,8 @@ authRouter.post('/role', async (req: AuthenticatedRequest, res) => {
     return res.status(400).json({ message: 'Invalid role' });
   }
 
-  const adminEmail = process.env.FIREBASE_ADMIN_EMAIL;
-  const ceoEmail = process.env.FIREBASE_CEO_EMAIL;
+  const adminEmail = getAdminEmail();
+  const ceoEmail = getCeoEmail();
 
   if (adminEmail && email === adminEmail && role !== 'Admin') {
     return res.status(400).json({ message: 'The primary administrator cannot be reassigned.' });
@@ -126,8 +132,14 @@ authRouter.post('/role', async (req: AuthenticatedRequest, res) => {
       .json({ message: 'Only the configured executive account can hold the CEO role.' });
   }
 
-  if (email === adminEmail && requester.role !== 'Admin') {
+  if (adminEmail && email === adminEmail && requester.role !== 'Admin') {
     return res.status(403).json({ message: 'Only the administrator can manage the primary admin account.' });
+  }
+
+  if (ceoEmail && email === ceoEmail && role !== 'CEO') {
+    return res
+      .status(400)
+      .json({ message: 'The executive account cannot be reassigned to a non-CEO role.' });
   }
 
   const existingUser = await prisma.user.findUnique({ where: { email } });

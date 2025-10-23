@@ -14,10 +14,20 @@ import { scheduler } from './modules/scheduler/scheduler.service.js';
 import { swaggerSpec } from './swagger.js';
 import { errorHandler } from './modules/auth/error.middleware.js';
 import { captionGeneratorRouter } from './modules/caption-generator/caption-generator.controller.js';
+import { bootstrapWorkspaceUsers } from './modules/auth/user.bootstrap.js';
 
 dotenv.config();
 
 const app = express();
+
+void bootstrapWorkspaceUsers().then((result) => {
+  if (!result) return;
+  if (result.createdFirebase > 0 || result.ensuredDatabase > 0) {
+    console.log(
+      `Workspace bootstrap complete: ${result.createdFirebase} Firebase accounts ensured, ${result.ensuredDatabase} database records aligned.`,
+    );
+  }
+});
 
 const allowedOrigins = (process.env.CORS_WHITELIST || '').split(',').filter(Boolean);
 app.use(
