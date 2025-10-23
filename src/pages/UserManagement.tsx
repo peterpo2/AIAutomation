@@ -1,8 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Crown, Loader2, ShieldCheck, Users, AlertCircle, CheckCircle2 } from 'lucide-react';
+import {
+  Crown,
+  Loader2,
+  ShieldCheck,
+  Users,
+  AlertCircle,
+  CheckCircle2,
+  UserPlus,
+  UserMinus,
+  Info,
+} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import type { PermissionMatrix, UserRole } from '../types/auth';
+import type { PermissionMatrix, UserRole, SeatSummary } from '../types/auth';
 
 interface ManagedUser {
   id: string;
@@ -11,6 +21,11 @@ interface ManagedUser {
   createdAt: string;
   immutable: boolean;
   isCeo: boolean;
+}
+
+interface UserDirectoryResponse {
+  users: ManagedUser[];
+  seats?: SeatSummary;
 }
 
 const roleLabels: Record<UserRole, string> = {
@@ -28,6 +43,7 @@ export default function UserManagement() {
   const [success, setSuccess] = useState<string | null>(null);
   const [updatingEmail, setUpdatingEmail] = useState<string | null>(null);
   const [matrix, setMatrix] = useState<PermissionMatrix | null>(null);
+  const [seats, setSeats] = useState<SeatSummary | null>(null);
   const [pendingRoles, setPendingRoles] = useState<Record<string, UserRole>>({});
 
   const isSelf = useCallback((email: string) => user?.email === email, [user?.email]);
@@ -38,6 +54,8 @@ export default function UserManagement() {
     }
     setLoading(true);
     setError(null);
+    setSeats(null);
+    setSuccess(null);
     try {
       const token = await user.getIdToken();
       const [usersResponse, permissionsResponse] = await Promise.all([
@@ -62,10 +80,11 @@ export default function UserManagement() {
         throw new Error(data?.message ?? 'Failed to load permissions');
       }
 
-      const userData = (await usersResponse.json()) as { users: ManagedUser[] };
+      const userData = (await usersResponse.json()) as UserDirectoryResponse;
       const permissionData = (await permissionsResponse.json()) as PermissionMatrix;
 
       setUsers(userData.users);
+      setSeats(userData.seats ?? null);
       setMatrix(permissionData);
       setPendingRoles(
         userData.users.reduce<Record<string, UserRole>>((acc, current) => {
@@ -77,6 +96,7 @@ export default function UserManagement() {
       const message = err instanceof Error ? err.message : 'Failed to load users';
       setError(message);
       setUsers([]);
+      setSeats(null);
     } finally {
       setLoading(false);
     }
@@ -90,6 +110,11 @@ export default function UserManagement() {
     if (!matrix) return [] as UserRole[];
     return matrix.roles.map((role) => role.role);
   }, [matrix]);
+
+  const totalSeatUsage = seats && seats.limit > 0 ? Math.round((seats.totalUsed / seats.limit) * 100) : 0;
+  const standardSeatUsage =
+    seats && seats.standardLimit > 0 ? Math.round((seats.standardUsed / seats.standardLimit) * 100) : 0;
+  const standardSeatsExhausted = !!seats && seats.standardLimit > 0 && seats.remainingStandard === 0;
 
   const handleRoleSelection = (email: string, role: UserRole) => {
     setPendingRoles((prev) => ({ ...prev, [email]: role }));
@@ -159,6 +184,106 @@ export default function UserManagement() {
           Refresh data
         </button>
       </div>
+
+      {!loading && seats && (
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2 }}
+          className="grid gap-4 md:grid-cols-3"
+        >
+          <div className="bg-white border border-gray-100 rounded-xl p-5 shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-red-50 text-red-500 flex items-center justify-center">
+                <Users className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Workspace capacity</p>
+                <p className="text-2xl font-bold text-gray-800">
+                  {seats.totalUsed} / {seats.limit}
+                </p>
+              </div>
+            </div>
+            <div className="mt-4">
+              <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-red-500 rounded-full transition-all"
+                  style={{ width: `${Math.min(totalSeatUsage, 100)}%` }}
+                />
+              </div>
+              <p className="mt-2 text-xs text-gray-500">
+                Maximum of {seats.limit} active accounts in this workspace.
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-white border border-gray-100 rounded-xl p-5 shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                <UserPlus className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Standard members</p>
+                <p className="text-2xl font-bold text-gray-800">
+                  {seats.standardLimit > 0 ? (
+                    <>
+                      {seats.standardUsed} / {seats.standardLimit}
+                    </>
+                  ) : (
+                    seats.standardUsed
+                  )}
+                </p>
+              </div>
+            </div>
+            <div className="mt-4">
+              <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all ${standardSeatsExhausted ? 'bg-red-500' : 'bg-emerald-500'}`}
+                  style={{ width: `${Math.min(standardSeatUsage, 100)}%` }}
+                />
+              </div>
+              <p className="mt-2 text-xs text-gray-500">
+                {seats.standardLimit > 0
+                  ? `Up to ${seats.standardLimit} teammates without Admin or CEO permissions.`
+                  : 'No standard seats have been configured for this workspace.'}
+              </p>
+              {standardSeatsExhausted && (
+                <div className="mt-3 inline-flex items-center gap-2 text-xs font-medium text-red-600 bg-red-50 border border-red-100 rounded-full px-3 py-1">
+                  <UserMinus className="w-4 h-4" />
+                  All standard seats are in use
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="bg-white border border-gray-100 rounded-xl p-5 shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+                <Info className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Reserved roles</p>
+                <p className="text-2xl font-bold text-gray-800">{seats.reservedRoles.length}</p>
+              </div>
+            </div>
+            <ul className="mt-4 space-y-2 text-sm text-gray-600">
+              {seats.reservedRoles.map((reservedRole) => (
+                <li key={reservedRole} className="flex items-center gap-2">
+                  {reservedRole === 'Admin' ? (
+                    <ShieldCheck className="w-4 h-4 text-red-500" />
+                  ) : (
+                    <Crown className="w-4 h-4 text-amber-500" />
+                  )}
+                  <span>{reservedRole}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-xs text-gray-500">
+              Admin and CEO accounts retain full control and do not reduce the standard seat quota.
+            </p>
+          </div>
+        </motion.div>
+      )}
 
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700 flex items-center gap-2">

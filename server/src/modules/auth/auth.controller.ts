@@ -10,6 +10,10 @@ import {
   type UserRole,
 } from './permissions.js';
 
+const MAX_USER_SEATS = Number(process.env.SMARTOPS_MAX_USERS ?? '5');
+const RESERVED_ROLES: UserRole[] = ['Admin', 'CEO'];
+const MAX_STANDARD_USERS = Math.max(MAX_USER_SEATS - RESERVED_ROLES.length, 0);
+
 export const authRouter = Router();
 
 authRouter.use(firebaseAuthMiddleware);
@@ -38,9 +42,19 @@ authRouter.get('/users', async (req: AuthenticatedRequest, res) => {
     return res.status(403).json({ message: 'Forbidden' });
   }
 
-  const users = await prisma.user.findMany({
-    orderBy: { createdAt: 'desc' },
-  });
+  const [users, totalUsers, standardUsers] = await Promise.all([
+    prisma.user.findMany({
+      orderBy: { createdAt: 'desc' },
+    }),
+    prisma.user.count(),
+    prisma.user.count({
+      where: {
+        role: {
+          notIn: RESERVED_ROLES,
+        },
+      },
+    }),
+  ]);
 
   return res.json({
     users: users.map((user: { id: string; email: string; role: string; createdAt: Date }) => {
@@ -54,6 +68,15 @@ authRouter.get('/users', async (req: AuthenticatedRequest, res) => {
         isCeo: user.email === process.env.FIREBASE_CEO_EMAIL,
       };
     }),
+    seats: {
+      limit: MAX_USER_SEATS,
+      reservedRoles: RESERVED_ROLES,
+      totalUsed: totalUsers,
+      remainingTotal: Math.max(MAX_USER_SEATS - totalUsers, 0),
+      standardLimit: MAX_STANDARD_USERS,
+      standardUsed: standardUsers,
+      remainingStandard: Math.max(MAX_STANDARD_USERS - standardUsers, 0),
+    },
   });
 });
 
@@ -105,6 +128,52 @@ authRouter.post('/role', async (req: AuthenticatedRequest, res) => {
 
   if (email === adminEmail && requester.role !== 'Admin') {
     return res.status(403).json({ message: 'Only the administrator can manage the primary admin account.' });
+  }
+
+  const existingUser = await prisma.user.findUnique({ where: { email } });
+
+  if (!existingUser) {
+    const [totalUsers, standardUsers] = await Promise.all([
+      prisma.user.count(),
+      prisma.user.count({
+        where: {
+          role: {
+            notIn: RESERVED_ROLES,
+          },
+        },
+      }),
+    ]);
+
+    if (totalUsers >= MAX_USER_SEATS) {
+      return res.status(400).json({ message: `Maximum user capacity of ${MAX_USER_SEATS} has been reached.` });
+    }
+
+    if (!RESERVED_ROLES.includes(role) && standardUsers >= MAX_STANDARD_USERS) {
+      return res
+        .status(400)
+        .json({ message: `All ${MAX_STANDARD_USERS} standard seats are in use. Remove a member before inviting another.` });
+    }
+  } else if (!RESERVED_ROLES.includes(role)) {
+    const currentRole = USER_ROLES.includes(existingUser.role as UserRole)
+      ? (existingUser.role as UserRole)
+      : DEFAULT_ROLE;
+    const currentlyStandard = !RESERVED_ROLES.includes(currentRole);
+
+    if (!currentlyStandard) {
+      const standardUsers = await prisma.user.count({
+        where: {
+          role: {
+            notIn: RESERVED_ROLES,
+          },
+        },
+      });
+
+      if (standardUsers >= MAX_STANDARD_USERS) {
+        return res
+          .status(400)
+          .json({ message: `All ${MAX_STANDARD_USERS} standard seats are in use. Remove a member before inviting another.` });
+      }
+    }
   }
 
   const user = await prisma.user.upsert({

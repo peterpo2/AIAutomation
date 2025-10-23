@@ -3,6 +3,10 @@ import { getFirebaseAdmin } from './firebase.service.js';
 import { prisma } from './prisma.client.js';
 import { DEFAULT_ROLE, USER_ROLES, type UserRole } from './permissions.js';
 
+const MAX_USER_SEATS = Number(process.env.SMARTOPS_MAX_USERS ?? '5');
+const RESERVED_ROLES: UserRole[] = ['Admin', 'CEO'];
+const MAX_STANDARD_USERS = Math.max(MAX_USER_SEATS - RESERVED_ROLES.length, 0);
+
 export interface AuthenticatedRequest extends Request {
   user?: {
     uid: string;
@@ -45,6 +49,25 @@ export const firebaseAuthMiddleware = async (
 
     const resolvedRole: UserRole = isEnvAdmin ? 'Admin' : isEnvCeo ? 'CEO' : DEFAULT_ROLE;
     if (!user) {
+      if (!isEnvAdmin && !isEnvCeo) {
+        const [totalUsers, standardUsers] = await Promise.all([
+          prisma.user.count(),
+          prisma.user.count({
+            where: {
+              role: {
+                notIn: RESERVED_ROLES,
+              },
+            },
+          }),
+        ]);
+
+        if (totalUsers >= MAX_USER_SEATS || standardUsers >= MAX_STANDARD_USERS) {
+          return res.status(403).json({
+            message: `User limit reached. This workspace supports ${MAX_USER_SEATS} accounts with ${MAX_STANDARD_USERS} standard seats.`,
+          });
+        }
+      }
+
       user = await prisma.user.create({
         data: {
           email,

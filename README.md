@@ -285,6 +285,8 @@ Follow these steps the first time you bring SmartOps online (locally or on a VPS
    - `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET`, `DROPBOX_REFRESH_TOKEN` – generated from your Dropbox Scoped App
    - `FIREBASE_*` block – copy from your Firebase Admin service account JSON and client config (project ID, private key, client email, API key, auth domain, messaging sender ID, app ID, VAPID key)
    - `FIREBASE_ADMIN_EMAIL` / `FIREBASE_ADMIN_UID` – email/UID of the bootstrap administrator you want promoted on first login
+   - `FIREBASE_CEO_EMAIL` / `FIREBASE_CEO_UID` – optional executive account that will always assume the CEO role
+   - `SMARTOPS_MAX_USERS` – workspace seat cap (defaults to 5: 1 Admin, 1 CEO, 3 standard members)
    - `DATABASE_URL` – keep the default `postgresql://postgres:supersecret@postgres:5432/postgres` unless you manage Postgres externally
    - `REDIS_URL` – keep the default `redis://redis:6379`
    - Update any domains (e.g., `APP_BASE_URL`, `BACKEND_API_URL`) to match your intended hostnames
@@ -299,6 +301,10 @@ Follow these steps the first time you bring SmartOps online (locally or on a VPS
    # Firebase admin bootstrap
    FIREBASE_ADMIN_EMAIL=admin@smartops.test
    FIREBASE_ADMIN_UID=abcd1234firebaseuid
+   FIREBASE_CEO_EMAIL=ceo@smartops.test
+
+   # Seat management
+   SMARTOPS_MAX_USERS=5
 
    # Public Firebase config for the frontend (prefix with VITE_)
    VITE_FIREBASE_API_KEY=your-firebase-api-key
@@ -325,6 +331,11 @@ Follow these steps the first time you bring SmartOps online (locally or on a VPS
 9. **Create the first admin account**
    - In Firebase Authentication, add the email/UID specified above.
    - Sign into the frontend; the backend will promote this user to the Admin role automatically.
+   - Optional: add a second Firebase user whose email/UID matches `FIREBASE_CEO_EMAIL` or `FIREBASE_CEO_UID` for the reserved CEO seat.
+
+10. **Invite up to three standard members**
+    - Any additional Firebase logins beyond the Admin/CEO slots will be assigned the standard role (Client by default).
+    - SmartOps enforces a hard cap of three standard members (five users total). Remove an existing member before inviting another.
 
 ## License
 

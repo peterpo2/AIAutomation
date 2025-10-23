@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import UserMenu from './UserMenu';
 import type { UserRole } from '../types/auth';
 
 interface LayoutProps {
@@ -112,9 +113,7 @@ export default function Layout({ children }: LayoutProps) {
               <div className="flex-1 lg:flex-none" />
 
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 bg-red-500 rounded-full flex items-center justify-center">
-                  <span className="text-white text-sm font-bold">SO</span>
-                </div>
+                <UserMenu />
               </div>
             </div>
           </header>

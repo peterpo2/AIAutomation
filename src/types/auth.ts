@@ -29,3 +29,13 @@ export interface PermissionMatrix {
     ceoEmail: string | null;
   };
 }
+
+export interface SeatSummary {
+  limit: number;
+  reservedRoles: UserRole[];
+  totalUsed: number;
+  remainingTotal: number;
+  standardLimit: number;
+  standardUsed: number;
+  remainingStandard: number;
+}
