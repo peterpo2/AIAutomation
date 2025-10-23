@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -10,18 +10,22 @@ import {
   LogOut,
   CheckCircle,
   XCircle,
+  AlertCircle,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { isDropboxConnected, disconnectDropbox, getAuthUrl } from '../lib/dropbox';
 import { requestNotificationPermission } from '../lib/firebase';
 
 export default function Settings() {
-  const { user, signOut, profile, profileLoading } = useAuth();
+  const { user, signOut, profile, profileLoading, refreshProfile } = useAuth();
   const navigate = useNavigate();
   const [darkMode, setDarkMode] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [dropboxConnected, setDropboxConnected] = useState(isDropboxConnected());
   const [loading, setLoading] = useState(false);
+  const [emailDraft, setEmailDraft] = useState(user?.email ?? '');
+  const [profileMessage, setProfileMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [profileUpdating, setProfileUpdating] = useState(false);
 
   useEffect(() => {
     const darkModeStored = localStorage.getItem('darkMode') === 'true';
@@ -32,6 +36,10 @@ export default function Settings() {
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode);
   }, [darkMode]);
+
+  useEffect(() => {
+    setEmailDraft(user?.email ?? '');
+  }, [user?.email]);
 
   const toggleDarkMode = () => {
     const newValue = !darkMode;
@@ -70,6 +78,51 @@ export default function Settings() {
   const handleSignOut = async () => {
     await signOut();
     navigate('/login');
+  };
+
+  const handleProfileUpdate = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!user) return;
+
+    const trimmed = emailDraft.trim();
+    if (!trimmed) {
+      setProfileMessage({ type: 'error', text: 'Provide a valid email address before saving.' });
+      return;
+    }
+
+    if (trimmed === user.email) {
+      setProfileMessage({ type: 'error', text: 'Update your email before saving changes.' });
+      return;
+    }
+
+    setProfileUpdating(true);
+    setProfileMessage(null);
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch('/api/auth/me', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ email: trimmed }),
+      });
+
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(data?.message ?? 'Unable to update your profile right now.');
+      }
+
+      await user.reload();
+      await refreshProfile();
+      setEmailDraft(trimmed);
+      setProfileMessage({ type: 'success', text: 'Profile updated successfully.' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to update your profile right now.';
+      setProfileMessage({ type: 'error', text: message });
+    } finally {
+      setProfileUpdating(false);
+    }
   };
 
   return (
@@ -132,6 +185,47 @@ export default function Settings() {
               </div>
             </div>
           )}
+          <form
+            onSubmit={handleProfileUpdate}
+            className="mt-6 rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-3"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-gray-800">Update your email</p>
+                <p className="text-xs text-gray-500">Only administrators can change role-based permissions.</p>
+              </div>
+            </div>
+            {profileMessage && (
+              <div
+                className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${
+                  profileMessage.type === 'success'
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                    : 'border-red-200 bg-red-50 text-red-700'
+                }`}
+              >
+                <AlertCircle className="w-4 h-4 mt-0.5" />
+                <span>{profileMessage.text}</span>
+              </div>
+            )}
+            <div>
+              <label className="text-xs font-medium text-gray-600">Email address</label>
+              <input
+                type="email"
+                value={emailDraft}
+                onChange={(event) => setEmailDraft(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-red-300 focus:outline-none focus:ring-2 focus:ring-red-100"
+              />
+            </div>
+            <div className="flex items-center justify-end gap-3">
+              <button
+                type="submit"
+                disabled={profileUpdating}
+                className="inline-flex items-center gap-2 rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-600 disabled:opacity-60"
+              >
+                {profileUpdating && <span className="h-3 w-3 animate-spin rounded-full border border-white border-t-transparent" />}Save email
+              </button>
+            </div>
+          </form>
         </div>
       </motion.div>
 
