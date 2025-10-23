@@ -10,6 +10,7 @@ CREATE TABLE "User" (
     "email" TEXT NOT NULL,
     "role" TEXT NOT NULL,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
     CONSTRAINT "User_pkey" PRIMARY KEY ("id")
 );
 
@@ -23,10 +24,12 @@ CREATE TABLE "Video" (
     "status" "VideoStatus" NOT NULL,
     "brand" TEXT,
     "caption" TEXT,
+    "category" TEXT,
     "hashtags" TEXT,
     "caption_generated_at" TIMESTAMP(3),
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "user_id" UUID,
+
     CONSTRAINT "Video_pkey" PRIMARY KEY ("id")
 );
 
@@ -36,6 +39,7 @@ CREATE TABLE "jobs_log" (
     "job_name" TEXT NOT NULL,
     "status" TEXT NOT NULL,
     "executed_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
     CONSTRAINT "jobs_log_pkey" PRIMARY KEY ("id")
 );
 
