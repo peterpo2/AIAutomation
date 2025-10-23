@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { getFirebaseAdmin } from './firebase.service.js';
 import { prisma } from './prisma.client.js';
 import { DEFAULT_ROLE, USER_ROLES, type UserRole } from './permissions.js';
+import { normalizeEmail } from './email.utils.js';
 import {
   getAdminEmail,
   getAdminUid,
@@ -40,20 +41,23 @@ export const firebaseAuthMiddleware = async (
       return res.status(403).json({ message: 'Email missing from token' });
     }
 
-    let user = await prisma.user.findUnique({ where: { email } });
+    const normalizedEmail = normalizeEmail(email);
+    let user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
     const adminEmail = getAdminEmail();
     const adminUid = getAdminUid();
     const ceoEmail = getCeoEmail();
     const ceoUid = getCeoUid();
+    const normalizedAdminEmail = adminEmail ? normalizeEmail(adminEmail) : null;
+    const normalizedCeoEmail = ceoEmail ? normalizeEmail(ceoEmail) : null;
 
-    const isEnvAdmin = (!!adminEmail && email === adminEmail) || (!!adminUid && decoded.uid === adminUid);
-    const isEnvCeo = (!!ceoEmail && email === ceoEmail) || (!!ceoUid && decoded.uid === ceoUid);
+    const isEnvAdmin = (!!normalizedAdminEmail && normalizedEmail === normalizedAdminEmail) || (!!adminUid && decoded.uid === adminUid);
+    const isEnvCeo = (!!normalizedCeoEmail && normalizedEmail === normalizedCeoEmail) || (!!ceoUid && decoded.uid === ceoUid);
 
     const resolvedRole: UserRole = isEnvAdmin ? 'Admin' : isEnvCeo ? 'CEO' : DEFAULT_ROLE;
     if (!user) {
       user = await prisma.user.create({
         data: {
-          email,
+          email: normalizedEmail,
           role: resolvedRole,
         },
       });
@@ -69,7 +73,7 @@ export const firebaseAuthMiddleware = async (
 
       if (nextRole !== normalizedRole) {
         user = await prisma.user.update({
-          where: { email },
+          where: { email: normalizedEmail },
           data: { role: nextRole },
         });
       }
@@ -77,7 +81,7 @@ export const firebaseAuthMiddleware = async (
 
     const role = USER_ROLES.includes(user.role as UserRole) ? (user.role as UserRole) : DEFAULT_ROLE;
 
-    req.user = { uid: decoded.uid, email, role };
+    req.user = { uid: decoded.uid, email: normalizedEmail, role };
     return next();
   } catch (error) {
     console.error('Auth error', error);

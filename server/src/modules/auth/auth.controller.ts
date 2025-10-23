@@ -11,6 +11,7 @@ import {
 } from './permissions.js';
 import { getImmutableAssignments, getAdminEmail, getCeoEmail } from './reserved-users.js';
 import { getFirebaseAdmin } from './firebase.service.js';
+import { normalizeEmail } from './email.utils.js';
 
 class HttpError extends Error {
   status: number;
@@ -24,26 +25,26 @@ class HttpError extends Error {
 const toRole = (role: string | null | undefined): UserRole =>
   USER_ROLES.includes(role as UserRole) ? (role as UserRole) : DEFAULT_ROLE;
 
-const normalizeEmail = (email: string) => email.trim().toLowerCase();
-
 const ensureReservedRoleCompliance = (
   requesterRole: UserRole,
   email: string,
   targetRole: UserRole,
 ) => {
-  const adminEmail = getAdminEmail()?.toLowerCase();
-  const ceoEmail = getCeoEmail()?.toLowerCase();
-  const normalized = email.toLowerCase();
+  const adminEmail = getAdminEmail();
+  const ceoEmail = getCeoEmail();
+  const normalizedAdminEmail = adminEmail ? normalizeEmail(adminEmail) : null;
+  const normalizedCeoEmail = ceoEmail ? normalizeEmail(ceoEmail) : null;
+  const normalized = normalizeEmail(email);
 
-  if (targetRole === 'Admin' && normalized !== adminEmail) {
+  if (targetRole === 'Admin' && normalized !== normalizedAdminEmail) {
     throw new HttpError(400, 'Only the configured administrator account can hold the Admin role.');
   }
 
-  if (targetRole === 'CEO' && ceoEmail && normalized !== ceoEmail) {
+  if (targetRole === 'CEO' && normalizedCeoEmail && normalized !== normalizedCeoEmail) {
     throw new HttpError(400, 'Only the configured executive account can hold the CEO role.');
   }
 
-  if (adminEmail && normalized === adminEmail) {
+  if (normalizedAdminEmail && normalized === normalizedAdminEmail) {
     if (targetRole !== 'Admin') {
       throw new HttpError(400, 'The primary administrator cannot be reassigned.');
     }
@@ -52,7 +53,7 @@ const ensureReservedRoleCompliance = (
     }
   }
 
-  if (ceoEmail && normalized === ceoEmail && targetRole !== 'CEO') {
+  if (normalizedCeoEmail && normalized === normalizedCeoEmail && targetRole !== 'CEO') {
     throw new HttpError(400, 'The executive account cannot be reassigned to a non-CEO role.');
   }
 };
@@ -63,8 +64,11 @@ const mapManagedUser = (
 ) => {
   const assignments = getImmutableAssignments();
   const role = toRole(user.role);
-  const isPrimaryAdmin = user.email === assignments.adminEmail;
-  const isExecutive = user.email === assignments.ceoEmail;
+  const normalizedAdminEmail = assignments.adminEmail ? normalizeEmail(assignments.adminEmail) : null;
+  const normalizedCeoEmail = assignments.ceoEmail ? normalizeEmail(assignments.ceoEmail) : null;
+  const normalizedUserEmail = normalizeEmail(user.email);
+  const isPrimaryAdmin = normalizedAdminEmail ? normalizedUserEmail === normalizedAdminEmail : false;
+  const isExecutive = normalizedCeoEmail ? normalizedUserEmail === normalizedCeoEmail : false;
 
   const editable = requesterRole === 'Admin' || requesterRole === 'CEO';
 
@@ -103,19 +107,24 @@ authRouter.get('/me', async (req: AuthenticatedRequest, res) => {
     return res.status(404).json({ message: 'User not found' });
   }
 
-  const user = await prisma.user.findUnique({ where: { email } });
+  const normalizedEmail = normalizeEmail(email);
+  const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
   const role = USER_ROLES.includes(user?.role as UserRole) ? (user?.role as UserRole) : DEFAULT_ROLE;
 
   const immutableAssignments = getImmutableAssignments();
+  const normalizedAdminEmail = immutableAssignments.adminEmail
+    ? normalizeEmail(immutableAssignments.adminEmail)
+    : null;
+  const normalizedCeoEmail = immutableAssignments.ceoEmail ? normalizeEmail(immutableAssignments.ceoEmail) : null;
 
   return res.json({
-    email: user?.email ?? email,
+    email: user?.email ?? normalizedEmail,
     role,
     createdAt: user?.createdAt ?? null,
     permissions: ROLE_PERMISSIONS[role],
     immutableRole:
-      (immutableAssignments.adminEmail && email === immutableAssignments.adminEmail) ||
-      (immutableAssignments.ceoEmail && email === immutableAssignments.ceoEmail),
+      (normalizedAdminEmail && normalizedEmail === normalizedAdminEmail) ||
+      (normalizedCeoEmail && normalizedEmail === normalizedCeoEmail),
   });
 });
 
@@ -150,8 +159,9 @@ authRouter.post('/role', async (req: AuthenticatedRequest, res) => {
     return res.status(400).json({ message: 'Invalid role' });
   }
 
+  const normalizedEmail = normalizeEmail(email);
   try {
-    ensureReservedRoleCompliance(requesterRole, email, role);
+    ensureReservedRoleCompliance(requesterRole, normalizedEmail, role);
   } catch (error) {
     if (error instanceof HttpError) {
       return res.status(error.status).json({ message: error.message });
@@ -160,9 +170,9 @@ authRouter.post('/role', async (req: AuthenticatedRequest, res) => {
   }
 
   const user = await prisma.user.upsert({
-    where: { email },
+    where: { email: normalizedEmail },
     update: { role },
-    create: { email, role },
+    create: { email: normalizedEmail, role },
   });
 
   return res.json({ email: user.email, role: user.role });
@@ -268,12 +278,15 @@ authRouter.patch('/users/:id', async (req: AuthenticatedRequest, res) => {
     return res.status(400).json({ message: 'Invalid role provided.' });
   }
 
-  const adminEmail = getAdminEmail()?.toLowerCase();
-  const ceoEmail = getCeoEmail()?.toLowerCase();
-  const existingEmailNormalized = userRecord.email.toLowerCase();
+  const adminEmail = getAdminEmail();
+  const ceoEmail = getCeoEmail();
+  const normalizedAdminEmail = adminEmail ? normalizeEmail(adminEmail) : null;
+  const normalizedCeoEmail = ceoEmail ? normalizeEmail(ceoEmail) : null;
+  const existingEmailNormalized = normalizeEmail(userRecord.email);
+  const shouldSanitizeExistingEmail = userRecord.email !== existingEmailNormalized;
 
   if (email && normalizeEmail(email) !== existingEmailNormalized) {
-    if (existingEmailNormalized === adminEmail || existingEmailNormalized === ceoEmail) {
+    if (existingEmailNormalized === normalizedAdminEmail || existingEmailNormalized === normalizedCeoEmail) {
       return res.status(400).json({ message: 'This account email is reserved and cannot be changed.' });
     }
 
@@ -285,7 +298,8 @@ authRouter.patch('/users/:id', async (req: AuthenticatedRequest, res) => {
 
   if (nextRole) {
     try {
-      ensureReservedRoleCompliance(requesterRole, email ? normalizeEmail(email) : userRecord.email, nextRole);
+      const targetEmail = email ? normalizeEmail(email) : existingEmailNormalized;
+      ensureReservedRoleCompliance(requesterRole, targetEmail, nextRole);
     } catch (error) {
       if (error instanceof HttpError) {
         return res.status(error.status).json({ message: error.message });
@@ -297,7 +311,7 @@ authRouter.patch('/users/:id', async (req: AuthenticatedRequest, res) => {
   const firebaseAdmin = getFirebaseAdmin();
   let firebaseUser;
   try {
-    firebaseUser = await firebaseAdmin.auth().getUserByEmail(userRecord.email);
+    firebaseUser = await firebaseAdmin.auth().getUserByEmail(existingEmailNormalized);
   } catch (error) {
     const code = (error as { code?: string }).code;
     if (code !== 'auth/user-not-found') {
@@ -331,7 +345,7 @@ authRouter.patch('/users/:id', async (req: AuthenticatedRequest, res) => {
   const updated = await prisma.user.update({
     where: { id },
     data: {
-      email: updatePayload.email ?? userRecord.email,
+      email: updatePayload.email ?? (shouldSanitizeExistingEmail ? existingEmailNormalized : userRecord.email),
       role: nextRole ?? currentRole,
     },
   });
@@ -355,16 +369,18 @@ authRouter.delete('/users/:id', async (req: AuthenticatedRequest, res) => {
     return res.status(400).json({ message: 'You cannot delete your own account.' });
   }
 
-  const adminEmail = getAdminEmail()?.toLowerCase();
-  const ceoEmail = getCeoEmail()?.toLowerCase();
-  const normalized = userRecord.email.toLowerCase();
-  if (normalized === adminEmail || normalized === ceoEmail) {
+  const adminEmail = getAdminEmail();
+  const ceoEmail = getCeoEmail();
+  const normalizedAdminEmail = adminEmail ? normalizeEmail(adminEmail) : null;
+  const normalizedCeoEmail = ceoEmail ? normalizeEmail(ceoEmail) : null;
+  const normalized = normalizeEmail(userRecord.email);
+  if (normalized === normalizedAdminEmail || normalized === normalizedCeoEmail) {
     return res.status(400).json({ message: 'Reserved workspace accounts cannot be deleted.' });
   }
 
   const firebaseAdmin = getFirebaseAdmin();
   try {
-    const firebaseUser = await firebaseAdmin.auth().getUserByEmail(userRecord.email);
+    const firebaseUser = await firebaseAdmin.auth().getUserByEmail(normalized);
     await firebaseAdmin.auth().deleteUser(firebaseUser.uid);
   } catch (error) {
     const code = (error as { code?: string }).code;
@@ -398,16 +414,18 @@ authRouter.patch('/me', async (req: AuthenticatedRequest, res) => {
   const firebaseAdmin = getFirebaseAdmin();
   const updatePayload: { email?: string; password?: string; displayName?: string } = {};
 
-  const adminEmail = getAdminEmail()?.toLowerCase();
-  const ceoEmail = getCeoEmail()?.toLowerCase();
-  const normalizedCurrentEmail = requester.email.toLowerCase();
+  const adminEmail = getAdminEmail();
+  const ceoEmail = getCeoEmail();
+  const normalizedAdminEmail = adminEmail ? normalizeEmail(adminEmail) : null;
+  const normalizedCeoEmail = ceoEmail ? normalizeEmail(ceoEmail) : null;
+  const normalizedCurrentEmail = normalizeEmail(requester.email);
 
   if (email && normalizeEmail(email) !== normalizedCurrentEmail) {
     if (
-      normalizedCurrentEmail === adminEmail ||
-      normalizedCurrentEmail === ceoEmail ||
-      normalizeEmail(email) === adminEmail ||
-      normalizeEmail(email) === ceoEmail
+      normalizedCurrentEmail === normalizedAdminEmail ||
+      normalizedCurrentEmail === normalizedCeoEmail ||
+      normalizeEmail(email) === normalizedAdminEmail ||
+      normalizeEmail(email) === normalizedCeoEmail
     ) {
       return res.status(400).json({ message: 'Reserved workspace emails cannot be reassigned.' });
     }
@@ -436,18 +454,19 @@ authRouter.patch('/me', async (req: AuthenticatedRequest, res) => {
 
   if (updatePayload.email) {
     await prisma.user.updateMany({
-      where: { email: requester.email },
+      where: { email: normalizedCurrentEmail },
       data: { email: updatePayload.email },
     });
   }
 
+  const lookupEmail = normalizeEmail(updatePayload.email ?? requester.email);
   const updatedProfile = await prisma.user.findUnique({
-    where: { email: updatePayload.email ?? requester.email },
+    where: { email: lookupEmail },
   });
 
   const role = toRole(updatedProfile?.role ?? null);
   return res.json({
-    email: updatePayload.email ?? requester.email,
+    email: updatePayload.email ?? normalizeEmail(requester.email),
     role,
     createdAt: updatedProfile?.createdAt ?? null,
     permissions: ROLE_PERMISSIONS[role],

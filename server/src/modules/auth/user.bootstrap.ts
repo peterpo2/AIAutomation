@@ -2,6 +2,7 @@ import type { UserRecord } from 'firebase-admin/auth';
 import { prisma } from './prisma.client.js';
 import { getFirebaseAdmin } from './firebase.service.js';
 import { DEFAULT_ROLE, USER_ROLES, type UserRole } from './permissions.js';
+import { normalizeEmail } from './email.utils.js';
 import {
   getSeedUsers,
   getImmutableAssignments,
@@ -19,10 +20,11 @@ const isRole = (role: string): role is UserRole => USER_ROLES.includes(role as U
 
 const ensureDatabaseUser = async (seed: SeedUserDefinition) => {
   const role = isRole(seed.role) ? seed.role : DEFAULT_ROLE;
+  const normalizedEmail = normalizeEmail(seed.email);
   await prisma.user.upsert({
-    where: { email: seed.email },
+    where: { email: normalizedEmail },
     update: { role },
-    create: { email: seed.email, role },
+    create: { email: normalizedEmail, role },
   });
 };
 
@@ -33,7 +35,7 @@ const ensureFirebaseUser = async (
   let userRecord: UserRecord | null = null;
 
   try {
-    userRecord = await admin.auth().getUserByEmail(seed.email);
+    userRecord = await admin.auth().getUserByEmail(normalizeEmail(seed.email));
   } catch (error) {
     const code = (error as { code?: string }).code;
     if (code !== 'auth/user-not-found') {
@@ -49,7 +51,7 @@ const ensureFirebaseUser = async (
     }
 
     await admin.auth().createUser({
-      email: seed.email,
+      email: normalizeEmail(seed.email),
       password: seed.password,
       displayName: seed.displayName,
       emailVerified: true,
