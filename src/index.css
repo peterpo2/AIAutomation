@@ -29,6 +29,14 @@
     @apply bg-gray-800;
   }
 
+  .dark .bg-white\/60 {
+    @apply bg-gray-900/60;
+  }
+
+  .dark .bg-gray-50\/80 {
+    @apply bg-gray-900/40;
+  }
+
   .dark .bg-gray-100 {
     @apply bg-gray-800;
   }
@@ -51,6 +59,26 @@
 
   .dark .text-gray-400 {
     color: theme('colors.gray.500');
+  }
+
+  .dark .text-red-600 {
+    color: theme('colors.red.300');
+  }
+
+  .dark .text-red-500 {
+    color: theme('colors.red.200');
+  }
+
+  .dark .text-red-400 {
+    color: theme('colors.red.200');
+  }
+
+  .dark .bg-red-50 {
+    @apply bg-red-500/20;
+  }
+
+  .dark .bg-red-100 {
+    @apply bg-red-500/30;
   }
 
   .dark .border-gray-200 {

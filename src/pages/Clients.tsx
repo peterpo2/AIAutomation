@@ -83,6 +83,9 @@ const mapClientToForm = (client: ClientRecord): ClientFormValues => ({
   lastPosted: client.account.lastPosted,
 });
 
+const baseInputClasses =
+  'w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:border-red-400 focus:ring-2 focus:ring-red-100 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500 dark:focus:border-red-400 dark:focus:ring-red-500/30';
+
 const createClientRecord = (input: ClientFormValues): ClientRecord => {
   const timestamp = new Date().toISOString();
   return {
@@ -285,10 +288,10 @@ export default function Clients() {
           type={type}
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-red-400 focus:ring-2 focus:ring-red-100"
+          className={baseInputClasses}
         />
       ) : (
-        <span className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-800">
+        <span className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100">
           {value || '—'}
         </span>
       )}
@@ -358,8 +361,8 @@ export default function Clients() {
                     }}
                     className={`flex w-full flex-col gap-1 rounded-xl border px-4 py-3 text-left transition ${
                       isSelected
-                        ? 'border-red-500 bg-red-50 shadow-inner'
-                        : 'border-gray-200 bg-white hover:border-red-200 hover:bg-red-50/60'
+                        ? 'border-red-500 bg-red-50 shadow-inner dark:border-red-400 dark:bg-red-500/20'
+                        : 'border-gray-200 bg-white hover:border-red-200 hover:bg-red-50/60 dark:border-gray-700 dark:bg-gray-900/60 dark:hover:border-red-400 dark:hover:bg-red-500/10'
                     }`}
                     initial={{ opacity: 0, y: 12 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -376,7 +379,7 @@ export default function Clients() {
               })}
             </AnimatePresence>
             {clients.length === 0 && !isCreating && (
-              <div className="flex h-full flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50/80 px-6 text-center">
+              <div className="flex h-full flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50/80 px-6 text-center dark:border-gray-700 dark:bg-gray-900/50">
                 <ClipboardList className="mb-3 h-8 w-8 text-gray-400" />
                 <p className="text-sm font-medium text-gray-600">No clients tracked yet</p>
                 <p className="mt-1 text-xs text-gray-500">
@@ -395,7 +398,7 @@ export default function Clients() {
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -16 }}
-                className="rounded-2xl border border-dashed border-red-200 bg-white/60 p-6 shadow-inner"
+                className="rounded-2xl border border-dashed border-red-200 bg-white/60 p-6 shadow-inner dark:border-red-500/40 dark:bg-gray-900/70"
               >
                 <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
@@ -406,7 +409,7 @@ export default function Clients() {
                     <button
                       type="button"
                       onClick={handleCancel}
-                      className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50"
+                      className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
                     >
                       Cancel
                     </button>
@@ -440,7 +443,7 @@ export default function Clients() {
                     <div className="space-y-1">
                       <h2 className="text-2xl font-semibold text-gray-800">{selectedClient.name || 'Untitled client'}</h2>
                       <div className="flex flex-wrap items-center gap-3 text-sm text-gray-500">
-                        <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-3 py-1 text-xs font-medium text-red-600">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-3 py-1 text-xs font-medium text-red-600 dark:bg-red-500/20 dark:text-red-200">
                           <BadgeCheck className="h-3.5 w-3.5" /> {statusLabels[selectedClient.status]}
                         </span>
                         <span className="inline-flex items-center gap-2">
@@ -459,7 +462,7 @@ export default function Clients() {
                           <button
                             type="button"
                             onClick={handleCancel}
-                            className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50"
+                            className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
                           >
                             Cancel
                           </button>
@@ -480,8 +483,8 @@ export default function Clients() {
                             disabled={!isPrivileged}
                             className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium transition ${
                               isPrivileged
-                                ? 'border-gray-200 text-gray-700 hover:border-red-200 hover:text-red-600'
-                                : 'cursor-not-allowed border-gray-200 text-gray-400'
+                                ? 'border-gray-200 text-gray-700 hover:border-red-200 hover:text-red-600 dark:border-gray-700 dark:text-gray-200 dark:hover:border-red-400 dark:hover:text-red-300'
+                                : 'cursor-not-allowed border-gray-200 text-gray-400 dark:border-gray-700 dark:text-gray-500'
                             }`}
                           >
                             <Pencil className="h-4 w-4" />
@@ -493,8 +496,8 @@ export default function Clients() {
                             disabled={!isPrivileged}
                             className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium transition ${
                               isPrivileged
-                                ? 'border-transparent bg-red-50 text-red-600 hover:bg-red-100'
-                                : 'cursor-not-allowed border-gray-200 text-gray-400'
+                                ? 'border-transparent bg-red-50 text-red-600 hover:bg-red-100 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-200 dark:hover:bg-red-500/20'
+                                : 'cursor-not-allowed border-gray-200 text-gray-400 dark:border-gray-700 dark:text-gray-500'
                             }`}
                           >
                             <Trash2 className="h-4 w-4" />
@@ -506,7 +509,7 @@ export default function Clients() {
                   </div>
 
                   {!isPrivileged && (
-                    <div className="mt-4 rounded-xl border border-yellow-200 bg-yellow-50/80 p-4 text-xs text-yellow-700">
+                    <div className="mt-4 rounded-xl border border-yellow-200 bg-yellow-50/80 p-4 text-xs text-yellow-700 dark:border-yellow-500/40 dark:bg-yellow-500/10 dark:text-yellow-200">
                       This workspace role is read only. Contact an administrator if client information needs to change.
                     </div>
                   )}
@@ -520,7 +523,7 @@ export default function Clients() {
                             type="text"
                             value={formState.name}
                             onChange={(event) => handleFieldChange('name', event.target.value)}
-                            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                            className={baseInputClasses}
                           />
                         ) : (
                           <p className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-800">
@@ -536,7 +539,7 @@ export default function Clients() {
                               type="text"
                               value={formState.industry}
                               onChange={(event) => handleFieldChange('industry', event.target.value)}
-                              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                              className={baseInputClasses}
                             />
                           ) : (
                             <p className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-800">
@@ -551,7 +554,7 @@ export default function Clients() {
                               type="text"
                               value={formState.region}
                               onChange={(event) => handleFieldChange('region', event.target.value)}
-                              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                              className={baseInputClasses}
                             />
                           ) : (
                             <p className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-800">
@@ -566,7 +569,7 @@ export default function Clients() {
                           <select
                             value={formState.status}
                             onChange={(event) => handleFieldChange('status', event.target.value as ClientStatus)}
-                            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                            className={baseInputClasses}
                           >
                             {Object.entries(statusLabels).map(([value, label]) => (
                               <option key={value} value={value}>
@@ -587,7 +590,7 @@ export default function Clients() {
                             value={formState.notes}
                             onChange={(event) => handleFieldChange('notes', event.target.value)}
                             rows={3}
-                            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                            className={baseInputClasses}
                           />
                         ) : (
                           <p className="min-h-[3.5rem] rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
@@ -616,10 +619,10 @@ export default function Clients() {
                                   type="text"
                                   value={formState.password}
                                   onChange={(event) => handleFieldChange('password', event.target.value)}
-                                  className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                                  className={baseInputClasses}
                                 />
                               ) : (
-                                <span className="flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-800">
+                                <span className="flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100">
                                   {showPassword ? formState.password || '—' : formState.password ? '••••••••' : '—'}
                                 </span>
                               )}
@@ -627,7 +630,7 @@ export default function Clients() {
                                 <button
                                   type="button"
                                   onClick={() => setShowPassword((prev) => !prev)}
-                                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 transition hover:text-red-500"
+                                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 transition hover:text-red-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:hover:text-red-300"
                                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                                 >
                                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -689,7 +692,7 @@ export default function Clients() {
                                 onChange={(event) =>
                                   handleFieldChange('lastPosted', event.target.value ? event.target.value : null)
                                 }
-                                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                                className={baseInputClasses}
                               />
                             ) : (
                               <span className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-800">
@@ -730,7 +733,7 @@ export default function Clients() {
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -16 }}
-                className="flex h-full min-h-[24rem] flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-white p-12 text-center"
+                className="flex h-full min-h-[24rem] flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-white p-12 text-center dark:border-gray-700 dark:bg-gray-900"
               >
                 <ClipboardList className="h-12 w-12 text-gray-400" />
                 <h2 className="mt-4 text-xl font-semibold text-gray-700">Select a client to view their workspace</h2>
@@ -762,7 +765,7 @@ function ClientFormContent({ formState, onFieldChange, onNumberFieldChange }: Cl
             type="text"
             value={formState.name}
             onChange={(event) => onFieldChange('name', event.target.value)}
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-red-400 focus:ring-2 focus:ring-red-100"
+            className={baseInputClasses}
           />
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -772,7 +775,7 @@ function ClientFormContent({ formState, onFieldChange, onNumberFieldChange }: Cl
               type="text"
               value={formState.industry}
               onChange={(event) => onFieldChange('industry', event.target.value)}
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-red-400 focus:ring-2 focus:ring-red-100"
+              className={baseInputClasses}
             />
           </div>
           <div className="space-y-2">
@@ -781,7 +784,7 @@ function ClientFormContent({ formState, onFieldChange, onNumberFieldChange }: Cl
               type="text"
               value={formState.region}
               onChange={(event) => onFieldChange('region', event.target.value)}
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-red-400 focus:ring-2 focus:ring-red-100"
+              className={baseInputClasses}
             />
           </div>
         </div>
@@ -790,7 +793,7 @@ function ClientFormContent({ formState, onFieldChange, onNumberFieldChange }: Cl
           <select
             value={formState.status}
             onChange={(event) => onFieldChange('status', event.target.value as ClientStatus)}
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-red-400 focus:ring-2 focus:ring-red-100"
+            className={baseInputClasses}
           >
             {(['Active', 'Paused', 'Prospect'] satisfies ClientStatus[]).map((value) => (
               <option key={value} value={value}>
@@ -805,7 +808,7 @@ function ClientFormContent({ formState, onFieldChange, onNumberFieldChange }: Cl
             value={formState.notes}
             onChange={(event) => onFieldChange('notes', event.target.value)}
             rows={3}
-            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-red-400 focus:ring-2 focus:ring-red-100"
+            className={baseInputClasses}
           />
         </div>
       </div>
@@ -823,7 +826,7 @@ function ClientFormContent({ formState, onFieldChange, onNumberFieldChange }: Cl
                 type="text"
                 value={formState.handle}
                 onChange={(event) => onFieldChange('handle', event.target.value)}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                className={baseInputClasses}
               />
             </div>
             <div className="flex flex-col gap-1">
@@ -832,7 +835,7 @@ function ClientFormContent({ formState, onFieldChange, onNumberFieldChange }: Cl
                 type="text"
                 value={formState.username}
                 onChange={(event) => onFieldChange('username', event.target.value)}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                className={baseInputClasses}
               />
             </div>
             <div className="flex flex-col gap-1">
@@ -841,7 +844,7 @@ function ClientFormContent({ formState, onFieldChange, onNumberFieldChange }: Cl
                 type="text"
                 value={formState.password}
                 onChange={(event) => onFieldChange('password', event.target.value)}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                className={baseInputClasses}
               />
             </div>
           </div>
@@ -895,7 +898,7 @@ function ClientFormContent({ formState, onFieldChange, onNumberFieldChange }: Cl
                 type="date"
                 value={formState.lastPosted ?? ''}
                 onChange={(event) => onFieldChange('lastPosted', event.target.value ? event.target.value : null)}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-red-400 focus:ring-2 focus:ring-red-100"
+                className={baseInputClasses}
               />
             </div>
           </div>
@@ -925,10 +928,10 @@ function MetricCard({ label, value, editing = false, inputValue, onChange, step 
           step={step ?? '1'}
           min="0"
           onChange={(event) => onChange(event.target.value)}
-          className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-red-400 focus:ring-2 focus:ring-red-100"
+          className={baseInputClasses}
         />
       ) : (
-        <span className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-800">{value}</span>
+        <span className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-800 dark:border-gray-700 dark:bg-gray-900/60 dark:text-gray-100">{value}</span>
       )}
     </div>
   );
