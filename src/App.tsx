@@ -7,6 +7,7 @@ import RoleGuard from './components/RoleGuard';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import DropboxPage from './pages/Dropbox';
+import DropboxCallback from './pages/DropboxCallback';
 import Uploads from './pages/Uploads';
 import Reports from './pages/Reports';
 import Settings from './pages/Settings';
@@ -26,7 +27,8 @@ function App() {
         <Routes>
           <Route path="/" element={<Navigate to="/login" replace />} />
           <Route path="/login" element={<Login />} />
-          <Route path="/dropbox-callback" element={<DropboxPage />} />
+          <Route path="/dropbox-callback" element={<DropboxCallback />} />
+          <Route path="/auth/dropbox/callback" element={<DropboxCallback />} />
           <Route
             path="/*"
             element={

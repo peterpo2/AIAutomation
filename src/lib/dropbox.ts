@@ -79,7 +79,7 @@ const resolveRedirectUri = (): string => {
 
   const configuredUri = getEnvValue('VITE_DROPBOX_REDIRECT_URI', 'DROPBOX_REDIRECT_URI');
   if (!configuredUri) {
-    return `${window.location.origin}/dropbox-callback`;
+    return `${window.location.origin}/auth/dropbox/callback`;
   }
 
   try {
