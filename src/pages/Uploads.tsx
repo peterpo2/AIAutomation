@@ -136,7 +136,7 @@ export default function Uploads() {
 
     try {
       const token = await user.getIdToken();
-      const remoteVideos = await fetchUploads(token);
+      const remoteVideos = await fetchUploads(token, user.uid);
 
       setVideos((prev) => {
         const drafts = prev.filter((video) => !video.id);
@@ -200,8 +200,8 @@ export default function Uploads() {
     try {
       const token = await user.getIdToken();
       const persisted = sanitized.id
-        ? await updateUpload(token, String(sanitized.id), sanitized)
-        : await createUpload(token, sanitized);
+        ? await updateUpload(token, String(sanitized.id), sanitized, user.uid)
+        : await createUpload(token, sanitized, user.uid);
 
       setVideos((prev) => {
         const next = [...prev];
@@ -229,7 +229,7 @@ export default function Uploads() {
     if (video.id && user) {
       try {
         const token = await user.getIdToken();
-        await deleteUpload(token, String(video.id));
+        await deleteUpload(token, String(video.id), user.uid);
       } catch (error) {
         console.error('Failed to delete video from backend', error);
         setErrorMessage('Could not remove the video from the SmartOps backend. It has been removed locally.');
