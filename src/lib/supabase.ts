@@ -40,19 +40,22 @@ if (missingVars.length > 0) {
 export const supabase = supabaseClient;
 export const supabaseInitError = initializationError;
 
+export const VIDEO_STATUSES = ['pending', 'scheduled', 'uploaded'] as const;
+export type VideoStatus = (typeof VIDEO_STATUSES)[number];
+
 export type VideoMetadata = {
-  id?: string;
-  file_path: string;
-  file_name: string;
-  file_size: number;
-  brand?: string;
-  caption?: string;
-  category?: string;
-  dropbox_id: string;
-  thumbnail_url?: string;
-  created_at?: string;
-  user_id?: string;
-  status?: 'pending' | 'scheduled' | 'uploaded';
+  id?: string | number | null;
+  file_path?: string | null;
+  file_name?: string | null;
+  file_size?: number | null;
+  brand?: string | null;
+  caption?: string | null;
+  category?: string | null;
+  dropbox_id?: string | null;
+  thumbnail_url?: string | null;
+  created_at?: string | null;
+  user_id?: string | null;
+  status?: VideoStatus | null;
 };
 
 export type AnalyticsData = {
