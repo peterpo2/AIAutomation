@@ -55,7 +55,30 @@ The file includes:
 
 - **Frontend variables** (`VITE_*`) that Vite injects at build-time.
 - **Backend variables** (`DATABASE_URL`, `DROPBOX_*`, `OPENAI_API_KEY`, etc.).
-- **Database credentials** (`POSTGRES_*`) reused by both the app and the bundled Postgres container.
+- **Database credentials** (`POSTGRES_*`) reused by both the app and the bundled Postgres container. The
+  `POSTGRES_PASSWORD` value must be present and match the password segment in
+  `DATABASE_URL` (for example `postgresql://postgres:<password>@db:5432/...`). If it is
+  omitted Docker Compose falls back to an empty string, which produces the
+  warnings you are seeing in `docker compose logs` and prevents the backend from
+  connecting to Postgres.
+
+### Demo mode without Firebase
+
+If you want to explore the UI before wiring up Firebase authentication, set `VITE_ENABLE_DEMO_AUTH=true` in your environment (the flag defaults to `false`).
+
+- The frontend automatically signs you in as a demo user and labels the UI accordingly.
+- Email/password actions are mocked locally, so authentication does not reach Firebase.
+- Disable the flag once you have real Firebase credentials to restore production behaviour.
+
+## Troubleshooting
+
+### Blank page when opening `http://localhost`
+
+- A white page with no UI usually means the frontend could not initialise Firebase
+  authentication. Provide the Firebase variables listed above in your `.env`
+  file and rebuild the frontend (`docker compose up -d --build`).
+- Alternatively, enable demo mode explicitly (`VITE_ENABLE_DEMO_AUTH=true`) to
+  skip Firebase while you are still gathering credentials.
 
 > **Tip:** The backend automatically promotes the Firebase user whose email or UID matches `FIREBASE_ADMIN_EMAIL` / `FIREBASE_ADMIN_UID` to the `Admin` role inside PostgreSQL.
 

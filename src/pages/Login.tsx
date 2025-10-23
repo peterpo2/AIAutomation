@@ -12,12 +12,21 @@ export default function Login() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
-  const { signIn, signUp, resetPassword, configError } = useAuth();
+  const {
+    signIn,
+    signUp,
+    resetPassword,
+    configError,
+    configWarning,
+    demoMode,
+    diagnosticMode,
+    enableDiagnostics,
+  } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (configError) {
+    if (configError && !diagnosticMode) {
       setError(configError);
       return;
     }
@@ -46,7 +55,7 @@ export default function Login() {
     }
   };
 
-  if (configError) {
+  if (configError && !diagnosticMode) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center p-4">
         <motion.div
@@ -65,6 +74,13 @@ export default function Login() {
           <p className="text-gray-600">
             {configError}. Please provide the Firebase credentials in your environment variables before attempting to sign in.
           </p>
+          <button
+            type="button"
+            onClick={enableDiagnostics}
+            className="mt-4 inline-flex items-center justify-center px-4 py-2 rounded-lg text-sm font-medium text-amber-700 bg-amber-100 border border-amber-200 hover:bg-amber-200 transition-colors"
+          >
+            Continue in diagnostics mode
+          </button>
         </motion.div>
       </div>
     );
@@ -96,6 +112,28 @@ export default function Login() {
               : 'Sign in to continue to your dashboard'}
           </p>
         </div>
+
+        {(demoMode || diagnosticMode) && (
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-sm text-amber-700"
+          >
+            {demoMode
+              ? 'Demo mode is enabled. Use any email and password to explore the dashboard UI.'
+              : 'Diagnostics mode is active. Authentication is bypassed so you can review the interface while credentials are fixed.'}
+          </motion.div>
+        )}
+
+        {!diagnosticMode && configWarning && (
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 text-sm text-blue-700"
+          >
+            {configWarning}
+          </motion.div>
+        )}
 
         {error && (
           <motion.div

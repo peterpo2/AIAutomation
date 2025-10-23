@@ -7,12 +7,21 @@ import {
   onAuthStateChanged,
   sendPasswordResetEmail,
 } from 'firebase/auth';
-import { auth, firebaseConfigError } from '../lib/firebase';
+import {
+  auth,
+  firebaseConfigError,
+  firebaseConfigWarning,
+  isDemoAuthEnabled,
+} from '../lib/firebase';
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
   configError: string | null;
+  configWarning: string | null;
+  demoMode: boolean;
+  diagnosticMode: boolean;
+  enableDiagnostics: () => void;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -30,26 +39,54 @@ export const useAuth = () => {
 };
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [configError, setConfigError] = useState<string | null>(firebaseConfigError);
+  const placeholderUser = {
+    uid: 'placeholder-user',
+    email: 'placeholder@smartops.local',
+    displayName: 'SmartOps User',
+  } as unknown as User;
+
+  const [user, setUser] = useState<User | null>(isDemoAuthEnabled ? placeholderUser : null);
+  const [loading, setLoading] = useState(!isDemoAuthEnabled);
+  const [configError, setConfigError] = useState<string | null>(
+    isDemoAuthEnabled ? null : firebaseConfigError,
+  );
+  const [diagnosticMode, setDiagnosticMode] = useState(false);
+  const [configWarning] = useState<string | null>(firebaseConfigWarning);
 
   useEffect(() => {
+    if (isDemoAuthEnabled) {
+      setLoading(false);
+      return;
+    }
+
     if (!auth) {
       setConfigError((prev) => prev ?? 'Firebase authentication is not configured.');
       setLoading(false);
       return;
     }
 
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setUser(user);
+    const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
+      setUser(nextUser);
       setLoading(false);
+      if (nextUser) {
+        setDiagnosticMode(false);
+      }
     });
 
     return unsubscribe;
   }, []);
 
+  const enableDiagnostics = () => {
+    setDiagnosticMode(true);
+    setUser(placeholderUser);
+    setLoading(false);
+  };
+
   const signIn = async (email: string, password: string) => {
+    if (isDemoAuthEnabled || diagnosticMode) {
+      setUser(placeholderUser);
+      return;
+    }
     if (!auth) {
       throw new Error(configError ?? 'Authentication service is not configured.');
     }
@@ -57,6 +94,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const signUp = async (email: string, password: string) => {
+    if (isDemoAuthEnabled || diagnosticMode) {
+      setUser(placeholderUser);
+      return;
+    }
     if (!auth) {
       throw new Error(configError ?? 'Authentication service is not configured.');
     }
@@ -64,6 +105,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const signOut = async () => {
+    if (isDemoAuthEnabled || diagnosticMode) {
+      setUser(placeholderUser);
+      return;
+    }
     if (!auth) {
       throw new Error(configError ?? 'Authentication service is not configured.');
     }
@@ -71,6 +116,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const resetPassword = async (email: string) => {
+    if (isDemoAuthEnabled || diagnosticMode) {
+      return;
+    }
     if (!auth) {
       throw new Error(configError ?? 'Authentication service is not configured.');
     }
@@ -81,6 +129,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     user,
     loading,
     configError,
+    configWarning,
+    demoMode: isDemoAuthEnabled,
+    diagnosticMode,
+    enableDiagnostics,
     signIn,
     signUp,
     signOut,

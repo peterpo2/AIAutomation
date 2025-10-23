@@ -3,11 +3,14 @@ import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getMessaging, getToken, onMessage, isSupported } from 'firebase/messaging';
 
+const rawDemoFlag = import.meta.env.VITE_ENABLE_DEMO_AUTH;
+export const isDemoAuthEnabled =
+  rawDemoFlag === undefined ? false : rawDemoFlag === 'true' || rawDemoFlag === '1';
+
 const requiredFirebaseEnv = {
   VITE_FIREBASE_API_KEY: import.meta.env.VITE_FIREBASE_API_KEY,
   VITE_FIREBASE_AUTH_DOMAIN: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
   VITE_FIREBASE_PROJECT_ID: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  VITE_FIREBASE_STORAGE_BUCKET: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
   VITE_FIREBASE_MESSAGING_SENDER_ID: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
   VITE_FIREBASE_APP_ID: import.meta.env.VITE_FIREBASE_APP_ID,
 };
@@ -16,28 +19,45 @@ const missingFirebaseEnv = Object.entries(requiredFirebaseEnv)
   .filter(([, value]) => !value)
   .map(([key]) => key);
 
+const explicitStorageBucket = import.meta.env.VITE_FIREBASE_STORAGE_BUCKET;
+const inferredStorageBucket = requiredFirebaseEnv.VITE_FIREBASE_PROJECT_ID
+  ? `${requiredFirebaseEnv.VITE_FIREBASE_PROJECT_ID}.appspot.com`
+  : null;
+const resolvedStorageBucket = explicitStorageBucket ?? inferredStorageBucket;
+
+export const firebaseConfigWarning =
+  !isDemoAuthEnabled && !explicitStorageBucket && resolvedStorageBucket
+    ? `VITE_FIREBASE_STORAGE_BUCKET was not set. Using inferred bucket "${resolvedStorageBucket}".`
+    : null;
+
 export const firebaseConfigError =
-  missingFirebaseEnv.length > 0
+  !isDemoAuthEnabled && missingFirebaseEnv.length > 0
     ? `Missing Firebase environment variables: ${missingFirebaseEnv.join(', ')}`
     : null;
 
-const firebaseConfig = firebaseConfigError
-  ? null
-  : {
-      apiKey: requiredFirebaseEnv.VITE_FIREBASE_API_KEY,
-      authDomain: requiredFirebaseEnv.VITE_FIREBASE_AUTH_DOMAIN,
-      projectId: requiredFirebaseEnv.VITE_FIREBASE_PROJECT_ID,
-      storageBucket: requiredFirebaseEnv.VITE_FIREBASE_STORAGE_BUCKET,
-      messagingSenderId: requiredFirebaseEnv.VITE_FIREBASE_MESSAGING_SENDER_ID,
-      appId: requiredFirebaseEnv.VITE_FIREBASE_APP_ID,
-    };
+const firebaseConfig =
+  firebaseConfigError || isDemoAuthEnabled
+    ? null
+    : {
+        apiKey: requiredFirebaseEnv.VITE_FIREBASE_API_KEY,
+        authDomain: requiredFirebaseEnv.VITE_FIREBASE_AUTH_DOMAIN,
+        projectId: requiredFirebaseEnv.VITE_FIREBASE_PROJECT_ID,
+        messagingSenderId: requiredFirebaseEnv.VITE_FIREBASE_MESSAGING_SENDER_ID,
+        appId: requiredFirebaseEnv.VITE_FIREBASE_APP_ID,
+        ...(resolvedStorageBucket ? { storageBucket: resolvedStorageBucket } : {}),
+      };
 
 let app: FirebaseApp | null = null;
 
 if (firebaseConfig) {
   app = initializeApp(firebaseConfig);
+  if (firebaseConfigWarning) {
+    console.warn(firebaseConfigWarning);
+  }
 } else if (firebaseConfigError) {
   console.warn(firebaseConfigError);
+} else if (isDemoAuthEnabled) {
+  console.info('Firebase demo authentication mode enabled.');
 }
 
 export const firebaseApp = app;
@@ -46,7 +66,7 @@ export const auth = app ? getAuth(app) : null;
 let messaging: ReturnType<typeof getMessaging> | null = null;
 
 export const initializeMessaging = async () => {
-  if (!firebaseApp) {
+  if (!firebaseApp || isDemoAuthEnabled) {
     return null;
   }
   const supported = await isSupported();
@@ -58,7 +78,7 @@ export const initializeMessaging = async () => {
 };
 
 export const requestNotificationPermission = async () => {
-  if (!firebaseApp) {
+  if (!firebaseApp || isDemoAuthEnabled) {
     return null;
   }
   try {
@@ -79,7 +99,7 @@ export const requestNotificationPermission = async () => {
 };
 
 export const onMessageListener = async () => {
-  if (!firebaseApp) {
+  if (!firebaseApp || isDemoAuthEnabled) {
     return null;
   }
   const msg = await initializeMessaging();

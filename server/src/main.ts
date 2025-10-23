@@ -14,10 +14,19 @@ import { scheduler } from './modules/scheduler/scheduler.service.js';
 import { swaggerSpec } from './swagger.js';
 import { errorHandler } from './modules/auth/error.middleware.js';
 import { captionGeneratorRouter } from './modules/caption-generator/caption-generator.controller.js';
+import {
+  logDatabaseEnvDiagnostics,
+  verifyDatabaseConnectivity,
+} from './modules/diagnostics/databaseDiagnostics.js';
 
 dotenv.config();
 
 const app = express();
+
+logDatabaseEnvDiagnostics();
+verifyDatabaseConnectivity().catch((error) => {
+  console.error('[env] Unexpected error while running database connectivity check.', error);
+});
 
 const allowedOrigins = (process.env.CORS_WHITELIST || '').split(',').filter(Boolean);
 app.use(

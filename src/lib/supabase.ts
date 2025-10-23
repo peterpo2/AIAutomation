@@ -1,7 +1,13 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const normalizeEnv = (value: string | undefined): string | null => {
+  if (!value) return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+const supabaseUrl = normalizeEnv(import.meta.env.VITE_SUPABASE_URL);
+const supabaseAnonKey = normalizeEnv(import.meta.env.VITE_SUPABASE_ANON_KEY);
 
 const missingVars: string[] = [];
 
@@ -25,6 +31,9 @@ if (missingVars.length > 0) {
   }
 } else {
   try {
+    if (!supabaseUrl || !supabaseAnonKey) {
+      throw new Error('Supabase credentials are missing.');
+    }
     supabaseClient = createClient(supabaseUrl, supabaseAnonKey);
   } catch (error) {
     initializationError =
