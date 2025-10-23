@@ -12,6 +12,7 @@ import {
   X,
   Shield,
   UserCog,
+  Users,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
@@ -31,6 +32,7 @@ export default function Layout({ children }: LayoutProps) {
 
   const baseNavItems = [
     { path: '/dashboard', label: 'Dashboard', icon: Home },
+    { path: '/clients', label: 'Clients', icon: Users },
     { path: '/dropbox', label: 'Dropbox', icon: Folder },
     { path: '/uploads', label: 'Uploads', icon: Upload },
     { path: '/reports', label: 'Reports', icon: FileText },
