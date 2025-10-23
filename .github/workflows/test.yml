@@ -26,23 +26,32 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # ⚙️ Start Docker Compose (build everything)
+      # ⚙️ Install Docker Compose plugin (prevents version warnings)
+      - name: Install Docker Compose plugin
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y docker-compose-plugin
+          docker compose version
+
+      # 🧱 Build and start containers
       - name: Build and start containers
         run: |
           docker compose up -d --build
-          echo "🟢 Containers are up"
+          echo "🟢 Containers are up and running"
 
-      # 🗃️ Run Prisma migration + generate client inside backend
+      # 🗃️ Apply Prisma migrations & generate client inside backend container
       - name: Apply Prisma migrations
         run: |
           docker compose exec backend npx prisma migrate deploy || true
           docker compose exec backend npx prisma generate || true
 
-      # 🧪 Optional backend health check
+      # 🧪 Verify backend health
       - name: Verify backend health
         run: |
+          echo "⏳ Waiting for backend to start..."
           sleep 10
           curl -f http://localhost:8080/health || exit 1
+          echo "✅ Backend responded successfully"
 
       # 🧹 Tear down containers after tests
       - name: Stop containers
