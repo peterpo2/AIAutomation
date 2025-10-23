@@ -26,12 +26,9 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # ⚙️ Install Docker Compose plugin (prevents version warnings)
-      - name: Install Docker Compose plugin
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y docker-compose-plugin
-          docker compose version
+      # ⚙️ Verify Docker Compose availability
+      - name: Check Docker Compose
+        run: docker compose version
 
       # 🧱 Build and start containers
       - name: Build and start containers
