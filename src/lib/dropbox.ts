@@ -2,7 +2,6 @@ import { Dropbox, DropboxAuth } from 'dropbox';
 import type { files } from 'dropbox';
 import { clearCacheByPrefix, withCache, type CacheOptions } from './cache';
 
-const APP_KEY = import.meta.env.VITE_DROPBOX_APP_KEY;
 const CODE_VERIFIER_STORAGE_KEY = 'dropbox_code_verifier';
 const CACHE_PREFIX = 'dropbox:';
 const LIST_CACHE_PREFIX = `${CACHE_PREFIX}list:`;
@@ -38,10 +37,45 @@ type DropboxTokenResult = {
 
 type ThumbnailResult = files.FileMetadata & { fileBlob?: Blob };
 
-export const dropboxAuth = new DropboxAuth({ clientId: APP_KEY });
+let dropboxAuthInstance: DropboxAuth | null = null;
+
+const getDropboxAppKey = (): string => {
+  const key = import.meta.env.VITE_DROPBOX_APP_KEY?.trim();
+  if (!key) {
+    throw new Error('Dropbox integration is not configured. Please set VITE_DROPBOX_APP_KEY in your environment file.');
+  }
+  return key;
+};
+
+const getDropboxAuthClient = (): DropboxAuth => {
+  if (!dropboxAuthInstance) {
+    dropboxAuthInstance = new DropboxAuth({ clientId: getDropboxAppKey() });
+  }
+  return dropboxAuthInstance;
+};
+
+const resolveRedirectUri = (): string => {
+  if (typeof window === 'undefined') {
+    throw new Error('Dropbox redirect resolution is only available in the browser.');
+  }
+
+  const configuredUri = import.meta.env.VITE_DROPBOX_REDIRECT_URI?.trim();
+  if (!configuredUri) {
+    return `${window.location.origin}/dropbox-callback`;
+  }
+
+  try {
+    const resolved = new URL(configuredUri, window.location.origin);
+    return resolved.toString();
+  } catch (error) {
+    console.error('Invalid Dropbox redirect URI configured:', error);
+    throw new Error('Invalid Dropbox redirect URI configured. Update VITE_DROPBOX_REDIRECT_URI in your environment file.');
+  }
+};
 
 export const getAuthUrl = async (): Promise<string> => {
-  const redirectUri = `${window.location.origin}/dropbox-callback`;
+  const dropboxAuth = getDropboxAuthClient();
+  const redirectUri = resolveRedirectUri();
 
   const authUrl = await dropboxAuth.getAuthenticationUrl(
     redirectUri,
@@ -62,7 +96,8 @@ export const getAuthUrl = async (): Promise<string> => {
 };
 
 export const handleAuthCallback = async (code: string) => {
-  const redirectUri = `${window.location.origin}/dropbox-callback`;
+  const dropboxAuth = getDropboxAuthClient();
+  const redirectUri = resolveRedirectUri();
 
   try {
     const storedVerifier = sessionStorage.getItem(CODE_VERIFIER_STORAGE_KEY);

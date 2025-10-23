@@ -33,6 +33,11 @@ export default function DropboxPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
 
+  const dropboxConfigured = useMemo(() => {
+    const key = import.meta.env.VITE_DROPBOX_APP_KEY;
+    return typeof key === 'string' && key.trim().length > 0;
+  }, []);
+
   const isVideoFile = useCallback((filename: string) => {
     const videoExtensions = ['.mp4', '.mov', '.avi', '.mkv', '.webm'];
     return videoExtensions.some((ext) => filename.toLowerCase().endsWith(ext));
@@ -110,11 +115,14 @@ export default function DropboxPage() {
 
   const handleConnect = async () => {
     try {
+      if (!dropboxConfigured) {
+        throw new Error('Dropbox integration is not configured. Please set VITE_DROPBOX_APP_KEY in your environment.');
+      }
       const authUrl = await getAuthUrl();
       window.location.href = authUrl;
     } catch (error) {
       console.error('Error starting Dropbox authentication:', error);
-      setErrorMessage('Could not initiate Dropbox authentication. Please try again.');
+      setErrorMessage(error instanceof Error ? error.message : 'Could not initiate Dropbox authentication. Please try again.');
     }
   };
 
@@ -168,10 +176,16 @@ export default function DropboxPage() {
           </p>
           <button
             onClick={handleConnect}
-            className="bg-blue-500 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-600 transition-colors shadow-lg shadow-blue-500/30"
+            disabled={!dropboxConfigured}
+            className="bg-blue-500 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-600 transition-colors shadow-lg shadow-blue-500/30 disabled:opacity-60 disabled:cursor-not-allowed"
           >
             Connect to Dropbox
           </button>
+          {!dropboxConfigured && (
+            <p className="text-sm text-red-500 mt-4">
+              Dropbox integration is not configured. Update your environment variables and reload the page.
+            </p>
+          )}
           {errorMessage && (
             <p className="text-sm text-red-500 mt-4">{errorMessage}</p>
           )}
