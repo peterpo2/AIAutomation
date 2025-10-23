@@ -190,6 +190,7 @@ authRouter.post('/users', async (req: AuthenticatedRequest, res) => {
   }
 
   const normalizedEmail = normalizeEmail(email);
+  const sanitizedDisplayName = displayName?.trim();
 
   try {
     ensureReservedRoleCompliance(requesterRole, normalizedEmail, role);
@@ -207,12 +208,22 @@ authRouter.post('/users', async (req: AuthenticatedRequest, res) => {
 
   const firebaseAdmin = getFirebaseAdmin();
   try {
-    await firebaseAdmin.auth().createUser({
+    const createPayload: {
+      email: string;
+      password: string;
+      emailVerified: true;
+      displayName?: string;
+    } = {
       email: normalizedEmail,
       password,
-      displayName,
       emailVerified: true,
-    });
+    };
+
+    if (sanitizedDisplayName && sanitizedDisplayName.length > 0) {
+      createPayload.displayName = sanitizedDisplayName;
+    }
+
+    await firebaseAdmin.auth().createUser(createPayload);
   } catch (error) {
     const code = (error as { code?: string }).code;
     if (code === 'auth/email-already-exists') {
@@ -296,15 +307,16 @@ authRouter.patch('/users/:id', async (req: AuthenticatedRequest, res) => {
     firebaseUser = null;
   }
 
-  const updatePayload: { email?: string; password?: string; displayName?: string } = {};
+  const updatePayload: { email?: string; password?: string; displayName?: string | null } = {};
   if (email && normalizeEmail(email) !== existingEmailNormalized) {
     updatePayload.email = normalizeEmail(email);
   }
   if (password) {
     updatePayload.password = password;
   }
-  if (displayName) {
-    updatePayload.displayName = displayName;
+  if (displayName !== undefined) {
+    const trimmedDisplayName = displayName.trim();
+    updatePayload.displayName = trimmedDisplayName.length > 0 ? trimmedDisplayName : null;
   }
 
   if (firebaseUser && Object.keys(updatePayload).length > 0) {

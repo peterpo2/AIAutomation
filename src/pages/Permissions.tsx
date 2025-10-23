@@ -237,13 +237,30 @@ export default function Permissions() {
     setActionMessage(null);
     try {
       const token = await user.getIdToken();
+      const trimmedEmail = createForm.email.trim();
+      const payload: {
+        email: string;
+        password: string;
+        role: UserRole;
+        displayName?: string;
+      } = {
+        email: trimmedEmail,
+        password: createForm.password,
+        role: createForm.role,
+      };
+
+      const sanitizedDisplayName = createForm.displayName.trim();
+      if (sanitizedDisplayName.length > 0) {
+        payload.displayName = sanitizedDisplayName;
+      }
+
       const response = await apiFetch('/auth/users', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(createForm),
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
@@ -268,10 +285,12 @@ export default function Permissions() {
   const handleSaveUser = async () => {
     if (!user || !selectedUser) return;
 
-    const nextEmail = emailDrafts[selectedUser.id] ?? selectedUser.email;
+    const nextEmail = (emailDrafts[selectedUser.id] ?? selectedUser.email).trim();
     const nextRole = roleDrafts[selectedUser.id] ?? selectedUser.role;
 
-    const hasChanges = nextEmail !== selectedUser.email || nextRole !== selectedUser.role;
+    const hasEmailChange = nextEmail !== selectedUser.email;
+    const hasRoleChange = nextRole !== selectedUser.role;
+    const hasChanges = hasEmailChange || hasRoleChange;
     if (!hasChanges) {
       setActionMessage({ type: 'error', text: 'No changes to save for this member.' });
       return;
@@ -287,7 +306,10 @@ export default function Permissions() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ email: nextEmail, role: nextRole }),
+        body: JSON.stringify({
+          ...(hasEmailChange ? { email: nextEmail } : {}),
+          ...(hasRoleChange ? { role: nextRole } : {}),
+        }),
       });
 
       if (!response.ok) {
