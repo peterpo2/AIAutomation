@@ -45,10 +45,10 @@ export default function Dashboard() {
         transition={{ delay: 0.2 }}
         className="bg-white text-gray-900 dark:bg-white dark:text-gray-900 rounded-2xl shadow-xl p-5 border border-gray-100"
       >
-        <div className="flex items-center justify-between text-gray-700">
+        <div className="flex items-center justify-between text-gray-700 dark:text-gray-200">
           <div>
-            <h2 className="text-xl font-semibold text-gray-900">Team calendar</h2>
-            <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Team calendar</h2>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
               Track campaign milestones and automation schedules at a glance.
             </p>
           </div>
