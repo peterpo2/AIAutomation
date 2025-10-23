@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { CheckCircle2, CircleDashed, Loader2, ShieldCheck, Crown, Info } from 'lucide-react';
+import { CheckCircle2, CircleDashed, Loader2, ShieldCheck, Crown, Info, ShieldAlert } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import type { PermissionMatrix, UserRole } from '../types/auth';
 
@@ -36,7 +36,11 @@ export default function Permissions() {
 
         if (!response.ok) {
           const data = (await response.json().catch(() => null)) as { message?: string } | null;
-          throw new Error(data?.message ?? 'Unable to load permissions');
+          const defaultMessage =
+            response.status === 401
+              ? 'Please sign in again to review the permission catalogue.'
+              : 'Unable to load permissions';
+          throw new Error(data?.message ?? defaultMessage);
         }
 
         const data = (await response.json()) as PermissionMatrix;
@@ -61,6 +65,11 @@ export default function Permissions() {
       active = false;
     };
   }, [user]);
+
+  const permissionLookup = useMemo(() => {
+    if (!matrix) return new Map<string, PermissionMatrix['permissions'][number]>();
+    return new Map(matrix.permissions.map((permission) => [permission.key, permission]));
+  }, [matrix]);
 
   const renderBadge = (role: UserRole) => {
     if (!matrix) return null;
@@ -90,6 +99,32 @@ export default function Permissions() {
           <span className="font-semibold text-gray-800">{profile?.role ?? 'loading…'}</span>.
         </p>
       </div>
+
+      {matrix && (
+        <div className="grid gap-3 md:grid-cols-2">
+          {[
+            { role: 'Admin' as const, label: 'Administrator', Icon: ShieldCheck, color: 'text-red-600', email: matrix.immutableAssignments.adminEmail },
+            { role: 'CEO' as const, label: 'Executive (CEO)', Icon: Crown, color: 'text-amber-600', email: matrix.immutableAssignments.ceoEmail },
+          ].map(({ Icon, ...entry }) => (
+            <div key={entry.role} className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+              <div className="flex items-center gap-3">
+                <span className={`inline-flex h-10 w-10 items-center justify-center rounded-lg bg-gray-50 ${entry.color}`}>
+                  <Icon className="h-5 w-5" />
+                </span>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">{entry.label}</p>
+                  <p className="text-xs text-gray-500">{entry.email ?? 'No account reserved yet'}</p>
+                </div>
+              </div>
+              <p className="mt-3 text-xs text-gray-500">
+                {entry.role === 'Admin'
+                  ? 'Retains full system control including integrations, automations, and member management.'
+                  : 'Provides executive oversight with campaign approvals, financial insights, and alerts.'}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
 
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-red-700 text-sm">{error}</div>
@@ -125,6 +160,21 @@ export default function Permissions() {
                 <p className="text-sm text-gray-600">
                   {matrix.rolePermissions[role.role].length} permissions granted
                 </p>
+                <ul className="mt-4 space-y-3">
+                  {matrix.rolePermissions[role.role].map((permissionKey) => {
+                    const permission = permissionLookup.get(permissionKey);
+                    if (!permission) return null;
+                    return (
+                      <li key={permissionKey} className="flex gap-3">
+                        <CheckCircle2 className="mt-0.5 h-5 w-5 flex-shrink-0 text-emerald-500" />
+                        <div className="text-sm text-gray-600">
+                          <p className="font-semibold text-gray-800">{permission.label}</p>
+                          <p className="text-xs text-gray-500">{permission.description}</p>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
               </motion.div>
             ))}
           </div>
@@ -184,7 +234,7 @@ export default function Permissions() {
         </>
       ) : (
         <div className="bg-white border border-gray-100 rounded-xl p-8 text-center">
-          <ShieldCheck className="w-10 h-10 text-red-500 mx-auto mb-3" />
+          <ShieldAlert className="w-10 h-10 text-red-500 mx-auto mb-3" />
           <p className="text-gray-600">No permission data available.</p>
         </div>
       )}

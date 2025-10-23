@@ -16,6 +16,18 @@ const MAX_STANDARD_USERS = Math.max(MAX_USER_SEATS - RESERVED_ROLES.length, 0);
 
 export const authRouter = Router();
 
+authRouter.get('/permissions', (_req, res) => {
+  return res.json({
+    roles: ROLE_DEFINITIONS,
+    permissions: PERMISSION_DEFINITIONS,
+    rolePermissions: ROLE_PERMISSIONS,
+    immutableAssignments: {
+      adminEmail: process.env.FIREBASE_ADMIN_EMAIL ?? null,
+      ceoEmail: process.env.FIREBASE_CEO_EMAIL ?? null,
+    },
+  });
+});
+
 authRouter.use(firebaseAuthMiddleware);
 
 authRouter.get('/me', async (req: AuthenticatedRequest, res) => {
@@ -76,18 +88,6 @@ authRouter.get('/users', async (req: AuthenticatedRequest, res) => {
       standardLimit: MAX_STANDARD_USERS,
       standardUsed: standardUsers,
       remainingStandard: Math.max(MAX_STANDARD_USERS - standardUsers, 0),
-    },
-  });
-});
-
-authRouter.get('/permissions', (_req, res) => {
-  return res.json({
-    roles: ROLE_DEFINITIONS,
-    permissions: PERMISSION_DEFINITIONS,
-    rolePermissions: ROLE_PERMISSIONS,
-    immutableAssignments: {
-      adminEmail: process.env.FIREBASE_ADMIN_EMAIL ?? null,
-      ceoEmail: process.env.FIREBASE_CEO_EMAIL ?? null,
     },
   });
 });

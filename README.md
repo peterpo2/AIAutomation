@@ -84,15 +84,19 @@ Tail logs for all services with:
 docker compose logs -f
 ```
 
-## Example Admin Credentials
+## Demo Workspace Accounts
 
-1. In the Firebase console (Authentication → Users) create an email/password user:
-   - **Email:** `admin@smartops.test`
-   - **Password:** `DemoAdmin123!`
-2. Copy the generated UID into `FIREBASE_ADMIN_UID` (optional, but keeps the admin role even if the email changes).
-3. Sign in with this account on the frontend to receive full administrator privileges (role assignment happens on first authenticated request to the backend).
+Provision the following users in the Firebase console (Authentication → Users) to mirror the five-seat SmartOps workspace. Set `FIREBASE_ADMIN_EMAIL`/`FIREBASE_ADMIN_UID` and `FIREBASE_CEO_EMAIL`/`FIREBASE_CEO_UID` so the backend keeps those roles immutable.
 
-> For staging, you can create additional Firebase users and assign roles via the `/api/auth/role` endpoint (requires an Admin token).
+| Role | Email | Password | Notes |
+| --- | --- | --- | --- |
+| Admin | `admin@smartops.test` | `DemoAdmin123!` | Full platform control, reserved seat |
+| CEO | `ceo@smartops.test` | `DemoCeo123!` | Executive overview with approvals & reports |
+| Team | `marketing@smartops.test` | `DemoTeam123!` | Standard user for campaign execution |
+| Team | `creative@smartops.test` | `DemoTeam123!` | Standard user for asset preparation |
+| Client | `client@smartops.test` | `DemoClient123!` | Read-only stakeholder access |
+
+> Invite additional team/client users only after freeing a standard seat—the workspace is capped at five concurrent accounts.
 
 ## Database Schema (Prisma)
 
