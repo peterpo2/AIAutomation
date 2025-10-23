@@ -46,7 +46,7 @@ export default function Layout({ children }: LayoutProps) {
   const navItems = [...baseNavItems, ...managementNavItems, ...infoNavItems];
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 transition-colors duration-300">
       <div className="lg:flex">
         <aside
           className={`fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-gray-200 transform transition-transform duration-300 lg:translate-x-0 lg:static ${

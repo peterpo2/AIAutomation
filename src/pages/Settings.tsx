@@ -26,12 +26,18 @@ export default function Settings() {
   useEffect(() => {
     const darkModeStored = localStorage.getItem('darkMode') === 'true';
     setDarkMode(darkModeStored);
+    document.documentElement.classList.toggle('dark', darkModeStored);
   }, []);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', darkMode);
+  }, [darkMode]);
 
   const toggleDarkMode = () => {
     const newValue = !darkMode;
     setDarkMode(newValue);
     localStorage.setItem('darkMode', String(newValue));
+    document.documentElement.classList.toggle('dark', newValue);
   };
 
   const toggleNotifications = async () => {

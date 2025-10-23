@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import Layout from './components/Layout';
@@ -13,6 +14,11 @@ import Permissions from './pages/Permissions';
 import UserManagement from './pages/UserManagement';
 
 function App() {
+  useEffect(() => {
+    const storedDarkMode = localStorage.getItem('darkMode') === 'true';
+    document.documentElement.classList.toggle('dark', storedDarkMode);
+  }, []);
+
   return (
     <AuthProvider>
       <BrowserRouter>

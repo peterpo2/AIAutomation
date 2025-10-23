@@ -1,3 +1,87 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  .dark {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-gray-50 text-gray-900 transition-colors duration-300 ease-in-out;
+  }
+
+  .dark body {
+    @apply bg-gray-900 text-gray-100;
+  }
+}
+
+@layer components {
+  .dark .bg-white {
+    @apply bg-gray-800;
+  }
+
+  .dark .bg-gray-50 {
+    @apply bg-gray-800;
+  }
+
+  .dark .bg-gray-100 {
+    @apply bg-gray-800;
+  }
+
+  .dark .text-gray-800 {
+    color: theme('colors.gray.100');
+  }
+
+  .dark .text-gray-700 {
+    color: theme('colors.gray.200');
+  }
+
+  .dark .text-gray-600 {
+    color: theme('colors.gray.300');
+  }
+
+  .dark .text-gray-500 {
+    color: theme('colors.gray.400');
+  }
+
+  .dark .text-gray-400 {
+    color: theme('colors.gray.500');
+  }
+
+  .dark .border-gray-200 {
+    @apply border-gray-700;
+  }
+
+  .dark .border-gray-100 {
+    @apply border-gray-800;
+  }
+
+  .dark .border-gray-300 {
+    @apply border-gray-600;
+  }
+
+  .dark .shadow-lg {
+    @apply shadow-none;
+  }
+
+  .dark .hover\:bg-gray-100:hover {
+    @apply bg-gray-800;
+  }
+
+  .dark .hover\:bg-gray-50:hover {
+    @apply bg-gray-700;
+  }
+
+  .dark .bg-gradient-to-br.from-gray-50.to-white {
+    @apply from-gray-800 to-gray-900;
+  }
+
+  .dark .bg-gradient-to-br.from-gray-100.to-gray-200 {
+    @apply from-gray-800 to-gray-900;
+  }
+}
