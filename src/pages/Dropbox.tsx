@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
@@ -9,6 +9,7 @@ import {
   Home,
   Check,
   Loader2,
+  RefreshCcw,
 } from 'lucide-react';
 import {
   getAuthUrl,
@@ -17,6 +18,7 @@ import {
   listFiles,
   getThumbnail,
   DropboxFile,
+  type DropboxCacheOptions,
 } from '../lib/dropbox';
 
 export default function DropboxPage() {
@@ -29,37 +31,61 @@ export default function DropboxPage() {
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   const [thumbnails, setThumbnails] = useState<Map<string, string>>(new Map());
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
 
   const isVideoFile = useCallback((filename: string) => {
     const videoExtensions = ['.mp4', '.mov', '.avi', '.mkv', '.webm'];
     return videoExtensions.some((ext) => filename.toLowerCase().endsWith(ext));
   }, []);
 
-  const loadFiles = useCallback(async (path: string) => {
-    setLoading(true);
-    setErrorMessage(null);
-    try {
-      const fileList = await listFiles(path);
-      setFiles(fileList);
-      fileList.forEach(async (file) => {
-        if (!file.isFolder && isVideoFile(file.name)) {
-          const thumb = await getThumbnail(file.path);
-          if (thumb) {
-            setThumbnails((prev) => {
-              const next = new Map(prev);
-              next.set(file.path, thumb);
-              return next;
+  const loadFiles = useCallback(
+    async (path: string, options?: DropboxCacheOptions) => {
+      setLoading(true);
+      setErrorMessage(null);
+      try {
+        const fileList = await listFiles(path, options);
+        setFiles(fileList);
+        setThumbnails((prev) => {
+          const next = new Map<string, string>();
+          fileList.forEach((file) => {
+            const existing = prev.get(file.path);
+            if (existing) {
+              next.set(file.path, existing);
+            }
+          });
+          return next;
+        });
+
+        const videoFiles = fileList.filter((file) => !file.isFolder && isVideoFile(file.name));
+        if (videoFiles.length > 0) {
+          const results = await Promise.all(
+            videoFiles.map(async (file) => {
+              const thumb = await getThumbnail(file.path, options);
+              return { path: file.path, thumb };
+            }),
+          );
+
+          setThumbnails((prev) => {
+            const next = new Map(prev);
+            results.forEach(({ path: filePath, thumb }) => {
+              if (thumb) {
+                next.set(filePath, thumb);
+              }
             });
-          }
+            return next;
+          });
         }
-      });
-    } catch (error) {
-      console.error('Error loading files:', error);
-      setErrorMessage('Unable to load Dropbox files. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  }, [isVideoFile]);
+
+        setLastUpdated(Date.now());
+      } catch (error) {
+        console.error('Error loading files:', error);
+        setErrorMessage('Unable to load Dropbox files. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+    },
+    [isVideoFile],
+  );
 
   useEffect(() => {
     const code = searchParams.get('code');
@@ -69,7 +95,7 @@ export default function DropboxPage() {
           await handleAuthCallback(code);
           setConnected(true);
           navigate('/dropbox', { replace: true });
-          await loadFiles('');
+          await loadFiles('', { forceRefresh: true });
         } catch (error) {
           console.error('Error completing Dropbox authentication:', error);
           setErrorMessage(error instanceof Error ? error.message : 'Failed to connect to Dropbox.');
@@ -79,6 +105,8 @@ export default function DropboxPage() {
       void loadFiles('');
     }
   }, [searchParams, connected, navigate, loadFiles]);
+
+  const currentPath = useMemo(() => pathStack[pathStack.length - 1] ?? '', [pathStack]);
 
   const handleConnect = async () => {
     try {
@@ -100,6 +128,10 @@ export default function DropboxPage() {
     setPathStack(newStack);
     void loadFiles(newStack[newStack.length - 1]);
   };
+
+  const handleRefresh = useCallback(() => {
+    void loadFiles(currentPath, { forceRefresh: true });
+  }, [currentPath, loadFiles]);
 
   const toggleFileSelection = (filePath: string) => {
     setSelectedFiles((prev) => {
@@ -155,21 +187,37 @@ export default function DropboxPage() {
           {errorMessage}
         </div>
       )}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-800">Dropbox Files</h1>
           <p className="text-gray-600 mt-1">Browse and select videos</p>
         </div>
-        {selectedFiles.size > 0 && (
-          <motion.button
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            onClick={saveToQueue}
-            className="bg-red-500 text-white px-6 py-3 rounded-lg font-medium hover:bg-red-600 transition-colors shadow-lg shadow-red-500/30"
+        <div className="flex items-center gap-3">
+          {lastUpdated && (
+            <span className="text-sm text-gray-500">
+              Updated {new Date(lastUpdated).toLocaleTimeString()}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={handleRefresh}
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={loading}
           >
-            Add to Queue ({selectedFiles.size})
-          </motion.button>
-        )}
+            <RefreshCcw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+          {selectedFiles.size > 0 && (
+            <motion.button
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              onClick={saveToQueue}
+              className="bg-red-500 text-white px-6 py-3 rounded-lg font-medium hover:bg-red-600 transition-colors shadow-lg shadow-red-500/30"
+            >
+              Add to Queue ({selectedFiles.size})
+            </motion.button>
+          )}
+        </div>
       </div>
 
       <div className="bg-white rounded-xl shadow-lg p-4">

@@ -1,8 +1,32 @@
 import { Dropbox, DropboxAuth } from 'dropbox';
 import type { files } from 'dropbox';
+import { clearCacheByPrefix, withCache, type CacheOptions } from './cache';
 
 const APP_KEY = import.meta.env.VITE_DROPBOX_APP_KEY;
 const CODE_VERIFIER_STORAGE_KEY = 'dropbox_code_verifier';
+const CACHE_PREFIX = 'dropbox:';
+const LIST_CACHE_PREFIX = `${CACHE_PREFIX}list:`;
+const THUMBNAIL_CACHE_PREFIX = `${CACHE_PREFIX}thumbnail:`;
+
+const DEFAULT_LIST_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const DEFAULT_THUMBNAIL_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+const blobToDataUrl = (blob: Blob): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const { result } = reader;
+      if (typeof result === 'string') {
+        resolve(result);
+      } else {
+        reject(new Error('Failed to read blob as data URL'));
+      }
+    };
+    reader.onerror = () => {
+      reject(reader.error ?? new Error('Failed to read blob as data URL'));
+    };
+    reader.readAsDataURL(blob);
+  });
 
 type DropboxTokenResult = {
   access_token: string;
@@ -52,6 +76,7 @@ export const handleAuthCallback = async (code: string) => {
     const response = await dropboxAuth.getAccessTokenFromCode(redirectUri, code);
     const { access_token: accessToken } = response.result as DropboxTokenResult;
     localStorage.setItem('dropbox_access_token', accessToken);
+    clearDropboxCache();
     return accessToken;
   } catch (error) {
     console.error('Error getting Dropbox access token:', error);
@@ -68,6 +93,7 @@ export const getDropboxClient = (): Dropbox | null => {
 export const disconnectDropbox = () => {
   localStorage.removeItem('dropbox_access_token');
   sessionStorage.removeItem(CODE_VERIFIER_STORAGE_KEY);
+  clearDropboxCache();
 };
 
 export const isDropboxConnected = (): boolean => {
@@ -83,46 +109,65 @@ export interface DropboxFile {
   thumbnailUrl?: string;
 }
 
-export const listFiles = async (path: string = ''): Promise<DropboxFile[]> => {
+const getListCacheKey = (path: string) => `${LIST_CACHE_PREFIX}${path || 'root'}`;
+const getThumbnailCacheKey = (path: string) => `${THUMBNAIL_CACHE_PREFIX}${path || 'root'}`;
+
+export type DropboxCacheOptions = CacheOptions;
+
+export const listFiles = async (path: string = '', options?: DropboxCacheOptions): Promise<DropboxFile[]> => {
   const dbx = getDropboxClient();
   if (!dbx) throw new Error('Dropbox not connected');
 
-  try {
-    const response = await dbx.filesListFolder({ path });
-    const entries = response.result.entries.filter(
-      (entry): entry is files.FileMetadataReference | files.FolderMetadataReference =>
-        entry['.tag'] === 'file' || entry['.tag'] === 'folder',
-    );
+  const cacheOptions: CacheOptions = {
+    ttlMs: options?.ttlMs ?? DEFAULT_LIST_TTL_MS,
+    forceRefresh: options?.forceRefresh,
+  };
 
-    const mappedFiles: DropboxFile[] = entries.map((entry) => ({
-      name: entry.name,
-      path: entry.path_lower ?? entry.path_display ?? entry.name,
-      size: entry['.tag'] === 'file' ? entry.size : 0,
-      id: entry.id,
-      isFolder: entry['.tag'] === 'folder',
-    }));
-    return mappedFiles;
+  try {
+    return await withCache(getListCacheKey(path), async () => {
+      const response = await dbx.filesListFolder({ path });
+      const entries = response.result.entries.filter(
+        (entry): entry is files.FileMetadataReference | files.FolderMetadataReference =>
+          entry['.tag'] === 'file' || entry['.tag'] === 'folder',
+      );
+
+      const mappedFiles: DropboxFile[] = entries.map((entry) => ({
+        name: entry.name,
+        path: entry.path_lower ?? entry.path_display ?? entry.name,
+        size: entry['.tag'] === 'file' ? entry.size : 0,
+        id: entry.id,
+        isFolder: entry['.tag'] === 'folder',
+      }));
+      return mappedFiles;
+    }, cacheOptions);
   } catch (error) {
     console.error('Error listing files:', error);
     throw error;
   }
 };
 
-export const getThumbnail = async (path: string): Promise<string | null> => {
+export const getThumbnail = async (path: string, options?: DropboxCacheOptions): Promise<string | null> => {
   const dbx = getDropboxClient();
   if (!dbx) return null;
 
+  const cacheOptions: CacheOptions = {
+    ttlMs: options?.ttlMs ?? DEFAULT_THUMBNAIL_TTL_MS,
+    forceRefresh: options?.forceRefresh,
+  };
+
   try {
-    const response = await dbx.filesGetThumbnail({
-      path,
-      format: { '.tag': 'jpeg' },
-      size: { '.tag': 'w256h256' },
-    });
-    const { fileBlob } = response.result as ThumbnailResult;
-    if (!fileBlob) {
-      return null;
-    }
-    return URL.createObjectURL(fileBlob);
+    return await withCache(getThumbnailCacheKey(path), async () => {
+      const response = await dbx.filesGetThumbnail({
+        path,
+        format: { '.tag': 'jpeg' },
+        size: { '.tag': 'w256h256' },
+      });
+      const { fileBlob } = response.result as ThumbnailResult;
+      if (!fileBlob) {
+        return null;
+      }
+      return await blobToDataUrl(fileBlob);
+    }, cacheOptions);
   } catch (error) {
     console.error('Error getting thumbnail:', error);
     return null;
@@ -140,4 +185,8 @@ export const getTemporaryLink = async (path: string): Promise<string | null> => 
     console.error('Error getting temporary link:', error);
     return null;
   }
+};
+
+export const clearDropboxCache = () => {
+  clearCacheByPrefix(CACHE_PREFIX);
 };
