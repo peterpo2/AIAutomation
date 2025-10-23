@@ -139,6 +139,8 @@ const mapManagedUser = (
   };
 };
 
+type ManagedUser = Parameters<typeof mapManagedUser>[0];
+
 const assertPrivileged = (role: UserRole | undefined): role is UserRole => !!role && ['Admin', 'CEO'].includes(role);
 
 export const authRouter = Router();
@@ -198,7 +200,7 @@ authRouter.get('/users', async (req: AuthenticatedRequest, res) => {
   ]);
 
   return res.json({
-    users: users.map((user) => mapManagedUser(user, requesterRole)),
+    users: users.map((user: ManagedUser) => mapManagedUser(user, requesterRole)),
     seats: {
       limit: MAX_USER_SEATS,
       reservedRoles: RESERVED_ROLES,
@@ -213,7 +215,8 @@ authRouter.get('/users', async (req: AuthenticatedRequest, res) => {
 
 authRouter.post('/role', async (req: AuthenticatedRequest, res) => {
   const requester = req.user;
-  if (!assertPrivileged(requester?.role as UserRole | undefined)) {
+  const requesterRole = requester?.role as UserRole | undefined;
+  if (!assertPrivileged(requesterRole)) {
     return res.status(403).json({ message: 'Forbidden' });
   }
 
@@ -227,7 +230,7 @@ authRouter.post('/role', async (req: AuthenticatedRequest, res) => {
   }
 
   try {
-    ensureReservedRoleCompliance(requester.role as UserRole, email, role);
+    ensureReservedRoleCompliance(requesterRole, email, role);
   } catch (error) {
     if (error instanceof HttpError) {
       return res.status(error.status).json({ message: error.message });
