@@ -1,0 +1,50 @@
+name: 🧠 SmartOps CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    name: Build & Test Stack
+    runs-on: ubuntu-latest
+
+    steps:
+      # 🛠️ Checkout repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 🗝️ Recreate .env file from GitHub secret
+      - name: Recreate .env file
+        run: |
+          echo "${{ secrets.ENV_FILE }}" > .env
+          echo "✅ .env file restored for CI"
+
+      # 🐋 Set up Docker Buildx
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ⚙️ Start Docker Compose (build everything)
+      - name: Build and start containers
+        run: |
+          docker compose up -d --build
+          echo "🟢 Containers are up"
+
+      # 🗃️ Run Prisma migration + generate client inside backend
+      - name: Apply Prisma migrations
+        run: |
+          docker compose exec backend npx prisma migrate deploy || true
+          docker compose exec backend npx prisma generate || true
+
+      # 🧪 Optional backend health check
+      - name: Verify backend health
+        run: |
+          sleep 10
+          curl -f http://localhost:8080/health || exit 1
+
+      # 🧹 Tear down containers after tests
+      - name: Stop containers
+        if: always()
+        run: docker compose down -v
