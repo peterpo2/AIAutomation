@@ -18,9 +18,11 @@ const parseSize = (size?: number | string): bigint => {
 };
 
 export const uploadsService = {
-  async list(userEmail: string) {
+  async list(userEmail?: string) {
+    const where = userEmail ? { user: { email: userEmail } } : undefined;
+
     return prisma.video.findMany({
-      where: { user: { email: userEmail } },
+      where,
       orderBy: { createdAt: 'desc' },
     });
   },
