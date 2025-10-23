@@ -31,7 +31,6 @@ const roleAccent: Record<UserRole, string> = {
   Admin: 'bg-red-500',
   CEO: 'bg-amber-500',
   Team: 'bg-blue-500',
-  Client: 'bg-gray-500',
 };
 
 const formatRole = (role: UserRole) => {
@@ -42,8 +41,6 @@ const formatRole = (role: UserRole) => {
       return 'Executive (CEO)';
     case 'Team':
       return 'Marketing Team';
-    case 'Client':
-      return 'Client / Stakeholder';
     default:
       return role;
   }

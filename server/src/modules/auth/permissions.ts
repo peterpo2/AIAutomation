@@ -1,4 +1,4 @@
-export const USER_ROLES = ['Admin', 'CEO', 'Team', 'Client'] as const;
+export const USER_ROLES = ['Admin', 'CEO', 'Team'] as const;
 export type UserRole = (typeof USER_ROLES)[number];
 
 export interface PermissionDefinition {
@@ -82,11 +82,6 @@ export const ROLE_DEFINITIONS: RoleDefinition[] = [
     label: 'Marketing Team',
     summary: 'Manages day-to-day campaign execution and content preparation.',
   },
-  {
-    role: 'Client',
-    label: 'Client / Stakeholder',
-    summary: 'Has read-only visibility into deliverables and reports.',
-  },
 ];
 
 export const ROLE_PERMISSIONS: Record<UserRole, PermissionDefinition['key'][]> = {
@@ -104,7 +99,6 @@ export const ROLE_PERMISSIONS: Record<UserRole, PermissionDefinition['key'][]> =
     'receiveAlerts',
   ],
   Team: ['viewDashboard', 'manageUploads', 'viewReports', 'receiveAlerts'],
-  Client: ['viewDashboard', 'viewReports'],
 };
 
-export const DEFAULT_ROLE: UserRole = 'Client';
+export const DEFAULT_ROLE: UserRole = 'Team';

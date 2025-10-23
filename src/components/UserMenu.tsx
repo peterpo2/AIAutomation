@@ -19,7 +19,6 @@ const roleLabels: Record<UserRole, string> = {
   Admin: 'Administrator',
   CEO: 'Executive (CEO)',
   Team: 'Marketing Team',
-  Client: 'Client / Stakeholder',
 };
 
 const managerRoles: UserRole[] = ['Admin', 'CEO'];
@@ -112,7 +111,7 @@ export default function UserMenu() {
         </div>
         <div className="hidden lg:flex flex-col items-start text-left">
           <span className="text-[11px] uppercase tracking-wide text-gray-500">Account</span>
-          <span className="text-sm font-semibold text-gray-800">{roleLabels[profile?.role ?? 'Client']}</span>
+          <span className="text-sm font-semibold text-gray-800">{roleLabels[profile?.role ?? 'Team']}</span>
         </div>
         <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
@@ -123,7 +122,7 @@ export default function UserMenu() {
             <p className="text-sm font-semibold text-gray-800 truncate">{profile?.email ?? user?.email}</p>
             <p className="mt-1 text-xs text-gray-500 flex items-center gap-1">
               <RoleBadgeIcon className="w-3.5 h-3.5" />
-              <span>{roleLabels[profile?.role ?? 'Client']}</span>
+              <span>{roleLabels[profile?.role ?? 'Team']}</span>
               {profile?.immutableRole && (
                 <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-600">
                   <Shield className="w-3 h-3" /> Locked role

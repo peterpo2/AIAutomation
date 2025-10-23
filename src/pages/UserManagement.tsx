@@ -33,7 +33,6 @@ const roleLabels: Record<UserRole, string> = {
   Admin: 'Administrator',
   CEO: 'Executive (CEO)',
   Team: 'Marketing Team',
-  Client: 'Client / Stakeholder',
 };
 
 export default function UserManagement() {

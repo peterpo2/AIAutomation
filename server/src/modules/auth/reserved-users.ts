@@ -39,13 +39,25 @@ const DEFAULT_ACCOUNTS = {
       password: 'DemoOps123!',
       displayName: 'Operations Specialist',
     },
+    {
+      role: 'Team' as const,
+      email: 'editor@smartops.test',
+      password: 'DemoTeam123!',
+      displayName: 'Content Editor',
+    },
+    {
+      role: 'Team' as const,
+      email: 'analyst@smartops.test',
+      password: 'DemoTeam123!',
+      displayName: 'Performance Analyst',
+    },
   ],
 } as const;
 
 const parseRole = (value: string | undefined, fallback: UserRole): UserRole => {
   if (!value) return fallback;
   const normalized = value.trim();
-  const allowed: UserRole[] = ['Admin', 'CEO', 'Team', 'Client'];
+  const allowed: UserRole[] = ['Admin', 'CEO', 'Team'];
   return allowed.includes(normalized as UserRole) ? (normalized as UserRole) : fallback;
 };
 
@@ -81,7 +93,7 @@ const getStandardSeatSeed = (index: number): SeedUserDefinition | null => {
 };
 
 export const getStandardSeatSeeds = (): SeedUserDefinition[] => {
-  return [0, 1, 2]
+  return [0, 1, 2, 3, 4]
     .map((index) => getStandardSeatSeed(index))
     .filter((seed): seed is SeedUserDefinition => seed !== null);
 };

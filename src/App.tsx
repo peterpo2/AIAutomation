@@ -12,7 +12,6 @@ import Reports from './pages/Reports';
 import Settings from './pages/Settings';
 import Permissions from './pages/Permissions';
 import UserManagement from './pages/UserManagement';
-import Clients from './pages/Clients';
 import Automations from './pages/Automations';
 
 function App() {
@@ -35,7 +34,6 @@ function App() {
                 <Layout>
                   <Routes>
                     <Route path="/dashboard" element={<Dashboard />} />
-                    <Route path="/clients" element={<Clients />} />
                     <Route path="/dropbox" element={<DropboxPage />} />
                     <Route path="/uploads" element={<Uploads />} />
                     <Route path="/reports" element={<Reports />} />

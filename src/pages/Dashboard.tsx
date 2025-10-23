@@ -1,60 +1,48 @@
+import { useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Link } from 'react-router-dom';
-import {
-  Upload,
-  Folder,
-  FileText,
-  TrendingUp,
-  Calendar,
-  Bell,
-  Cloud,
-  Video,
-} from 'lucide-react';
-import { isDropboxConnected } from '../lib/dropbox';
+import { Upload, FileText, TrendingUp, Calendar, Bell, Video } from 'lucide-react';
 
 export default function Dashboard() {
-  const dropboxConnected = isDropboxConnected();
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = today.getMonth();
+  const dayOfMonth = today.getDate();
+
+  const calendarDays = useMemo(() => {
+    const startOfMonth = new Date(year, month, 1);
+    const endOfMonth = new Date(year, month + 1, 0);
+    const daysInMonth = endOfMonth.getDate();
+    const leadingEmptyDays = startOfMonth.getDay();
+    const totalCells = Math.ceil((leadingEmptyDays + daysInMonth) / 7) * 7;
+
+    return Array.from({ length: totalCells }, (_, index) => {
+      const dateNumber = index - leadingEmptyDays + 1;
+      if (dateNumber < 1 || dateNumber > daysInMonth) {
+        return null;
+      }
+      return dateNumber;
+    });
+  }, [month, year]);
+
+  const monthLabel = today.toLocaleDateString(undefined, {
+    month: 'long',
+    year: 'numeric',
+  });
+
+  const todayLabel = today.toLocaleDateString(undefined, {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+
+  const weekdayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
   const stats = [
     { label: 'Posts Scheduled', value: '12', icon: Calendar, color: 'bg-blue-500' },
     { label: 'Pending Uploads', value: '5', icon: Upload, color: 'bg-orange-500' },
     { label: 'Total Videos', value: '47', icon: Video, color: 'bg-green-500' },
     { label: 'Weekly Views', value: '24.5K', icon: TrendingUp, color: 'bg-red-500' },
-  ];
-
-  const quickActions = [
-    {
-      title: 'Connect Dropbox',
-      description: 'Link your Dropbox account to browse videos',
-      icon: Cloud,
-      link: '/dropbox',
-      color: 'bg-blue-500',
-      enabled: !dropboxConnected,
-    },
-    {
-      title: 'Browse Files',
-      description: 'Select videos from your Dropbox folders',
-      icon: Folder,
-      link: '/dropbox',
-      color: 'bg-green-500',
-      enabled: dropboxConnected,
-    },
-    {
-      title: 'Upload Queue',
-      description: 'Manage videos ready for scheduling',
-      icon: Upload,
-      link: '/uploads',
-      color: 'bg-orange-500',
-      enabled: true,
-    },
-    {
-      title: 'View Reports',
-      description: 'Check analytics and performance metrics',
-      icon: FileText,
-      link: '/reports',
-      color: 'bg-red-500',
-      enabled: true,
-    },
   ];
 
   const recentActivity = [
@@ -100,30 +88,48 @@ export default function Dashboard() {
             transition={{ delay: 0.4 }}
             className="bg-white rounded-xl shadow-lg p-6"
           >
-            <h2 className="text-xl font-bold text-gray-800 mb-4">Quick Actions</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {quickActions.map((action, index) => (
-                <Link
-                  key={action.title}
-                  to={action.link}
-                  className={`${
-                    action.enabled ? 'hover:shadow-xl' : 'opacity-50 cursor-not-allowed pointer-events-none'
-                  } transition-all`}
-                >
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+              <div>
+                <h2 className="text-xl font-bold text-gray-800">Team calendar</h2>
+                <p className="text-sm text-gray-600">Track campaign milestones and automation schedules.</p>
+              </div>
+              <div className="text-right">
+                <p className="text-xs uppercase tracking-wide text-gray-500">Today</p>
+                <p className="text-sm font-semibold text-red-600">{todayLabel}</p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between text-gray-700 mb-4">
+              <h3 className="text-lg font-semibold">{monthLabel}</h3>
+            </div>
+
+            <div className="grid grid-cols-7 gap-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+              {weekdayLabels.map((label) => (
+                <div key={label} className="text-center">{label}</div>
+              ))}
+            </div>
+
+            <div className="mt-2 grid grid-cols-7 gap-2">
+              {calendarDays.map((dateNumber, index) => {
+                const isToday = dateNumber === dayOfMonth;
+                return (
                   <motion.div
+                    key={`${dateNumber ?? 'empty'}-${index}`}
                     initial={{ opacity: 0, scale: 0.9 }}
                     animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: 0.5 + index * 0.1 }}
-                    className="bg-gradient-to-br from-gray-50 to-white border border-gray-200 rounded-xl p-5 hover:border-gray-300 transition-all"
+                    transition={{ delay: 0.45 + index * 0.02 }}
+                    className={`aspect-square rounded-lg border flex items-center justify-center text-sm font-medium ${
+                      dateNumber
+                        ? isToday
+                          ? 'bg-red-500 text-white border-red-500 shadow-lg shadow-red-500/20'
+                          : 'bg-white text-gray-700 border-gray-200'
+                        : 'border-transparent'
+                    }`}
                   >
-                    <div className={`${action.color} w-12 h-12 rounded-lg flex items-center justify-center mb-3`}>
-                      <action.icon className="w-6 h-6 text-white" />
-                    </div>
-                    <h3 className="font-semibold text-gray-800 mb-1">{action.title}</h3>
-                    <p className="text-sm text-gray-600">{action.description}</p>
+                    {dateNumber ?? ''}
                   </motion.div>
-                </Link>
-              ))}
+                );
+              })}
             </div>
           </motion.div>
         </div>
@@ -152,21 +158,6 @@ export default function Dashboard() {
                 </div>
               ))}
             </div>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.7 }}
-            className="bg-gradient-to-br from-red-500 to-red-600 rounded-xl shadow-lg p-6 text-white"
-          >
-            <h3 className="font-bold text-lg mb-2">Need Help?</h3>
-            <p className="text-red-100 text-sm mb-4">
-              Check our documentation or contact support for assistance.
-            </p>
-            <button className="bg-white text-red-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-50 transition-colors">
-              Get Support
-            </button>
           </motion.div>
         </div>
       </div>

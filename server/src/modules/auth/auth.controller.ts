@@ -12,9 +12,21 @@ import {
 import { getImmutableAssignments, getAdminEmail, getCeoEmail } from './reserved-users.js';
 import { getFirebaseAdmin } from './firebase.service.js';
 
-const MAX_USER_SEATS = Number(process.env.SMARTOPS_MAX_USERS ?? '5');
+const parsePositiveNumber = (value: string | undefined, fallback: number): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
 const RESERVED_ROLES: UserRole[] = ['Admin', 'CEO'];
-const MAX_STANDARD_USERS = Math.max(MAX_USER_SEATS - RESERVED_ROLES.length, 0);
+const MAX_TEAM_MEMBERS = parsePositiveNumber(process.env.SMARTOPS_MAX_TEAM, 5);
+const MAX_USER_SEATS = parsePositiveNumber(
+  process.env.SMARTOPS_MAX_USERS,
+  MAX_TEAM_MEMBERS + RESERVED_ROLES.length,
+);
+const MAX_STANDARD_USERS = Math.min(
+  MAX_TEAM_MEMBERS,
+  Math.max(MAX_USER_SEATS - RESERVED_ROLES.length, 0),
+);
 
 class HttpError extends Error {
   status: number;

@@ -1,4 +1,4 @@
-import { ReactNode } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -12,10 +12,8 @@ import {
   X,
   Shield,
   UserCog,
-  Users,
   Workflow,
 } from 'lucide-react';
-import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import UserMenu from './UserMenu';
 import type { UserRole } from '../types/auth';
@@ -33,7 +31,6 @@ export default function Layout({ children }: LayoutProps) {
 
   const baseNavItems = [
     { path: '/dashboard', label: 'Dashboard', icon: Home },
-    { path: '/clients', label: 'Clients', icon: Users },
     { path: '/dropbox', label: 'Dropbox', icon: Folder },
     { path: '/uploads', label: 'Uploads', icon: Upload },
     { path: '/reports', label: 'Reports', icon: FileText },
@@ -49,6 +46,26 @@ export default function Layout({ children }: LayoutProps) {
 
   const navItems = [...baseNavItems, ...managementNavItems, ...infoNavItems];
 
+  const [currentDateTime, setCurrentDateTime] = useState(() => new Date());
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setCurrentDateTime(new Date()), 1000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const formattedDate = currentDateTime.toLocaleDateString(undefined, {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+
+  const formattedTime = currentDateTime.toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+
   return (
     <div className="min-h-screen bg-gray-50 transition-colors duration-300">
       <div className="lg:flex">
@@ -57,11 +74,17 @@ export default function Layout({ children }: LayoutProps) {
             sidebarOpen ? 'translate-x-0' : '-translate-x-full'
           }`}
         >
-          <div className="flex items-center gap-3 p-6 border-b border-gray-200">
-            <div className="bg-red-500 p-2 rounded-lg">
-              <Zap className="w-6 h-6 text-white" />
-            </div>
-            <h1 className="text-xl font-bold text-gray-800">SmartOps</h1>
+          <div className="p-6 border-b border-gray-200">
+            <Link
+              to="/dashboard"
+              onClick={() => setSidebarOpen(false)}
+              className="flex items-center gap-3 group"
+            >
+              <div className="bg-red-500 p-2 rounded-lg group-hover:bg-red-600 transition-colors">
+                <Zap className="w-6 h-6 text-white" />
+              </div>
+              <h1 className="text-xl font-bold text-gray-800 group-hover:text-red-600 transition-colors">SmartOps</h1>
+            </Link>
           </div>
 
           <nav className="p-4 space-y-2">
@@ -102,19 +125,36 @@ export default function Layout({ children }: LayoutProps) {
 
         <div className="flex-1 min-h-screen">
           <header className="bg-white border-b border-gray-200 sticky top-0 z-30">
-            <div className="flex items-center justify-between p-4">
-              <button
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-                className="lg:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors"
-              >
-                {sidebarOpen ? (
-                  <X className="w-6 h-6 text-gray-700" />
-                ) : (
-                  <Menu className="w-6 h-6 text-gray-700" />
-                )}
-              </button>
+            <div className="flex items-center justify-between gap-4 p-4">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setSidebarOpen(!sidebarOpen)}
+                  className="lg:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                >
+                  {sidebarOpen ? (
+                    <X className="w-6 h-6 text-gray-700" />
+                  ) : (
+                    <Menu className="w-6 h-6 text-gray-700" />
+                  )}
+                </button>
 
-              <div className="flex-1 lg:flex-none" />
+                <Link
+                  to="/dashboard"
+                  className="flex items-center gap-2 rounded-lg px-2 py-1 text-gray-800 font-semibold hover:bg-red-50 hover:text-red-600 transition-colors lg:hidden"
+                  onClick={() => setSidebarOpen(false)}
+                >
+                  <Zap className="w-5 h-5" />
+                  <span>SmartOps</span>
+                </Link>
+              </div>
+
+              <div className="flex-1 flex justify-end lg:justify-center">
+                <div className="text-right lg:text-center">
+                  <p className="text-[11px] uppercase tracking-wide text-gray-500">Today</p>
+                  <p className="text-sm font-semibold text-gray-800">{formattedDate}</p>
+                  <p className="text-xs text-gray-500">{formattedTime}</p>
+                </div>
+              </div>
 
               <div className="flex items-center gap-3">
                 <UserMenu />
