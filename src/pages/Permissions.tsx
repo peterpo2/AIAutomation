@@ -12,7 +12,7 @@ const roleAccent: Record<UserRole, string> = {
 };
 
 export default function Permissions() {
-  const { user, profile } = useAuth();
+  const { user, profile, profileLoading, refreshProfile } = useAuth();
   const [matrix, setMatrix] = useState<PermissionMatrix | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +66,14 @@ export default function Permissions() {
     };
   }, [user]);
 
+  useEffect(() => {
+    if (!user || profile || profileLoading) {
+      return;
+    }
+
+    void refreshProfile();
+  }, [user, profile, profileLoading, refreshProfile]);
+
   const permissionLookup = useMemo(() => {
     if (!matrix) return new Map<string, PermissionMatrix['permissions'][number]>();
     return new Map(matrix.permissions.map((permission) => [permission.key, permission]));
@@ -96,7 +104,10 @@ export default function Permissions() {
         <h1 className="text-3xl font-bold text-gray-800">Roles & Permissions</h1>
         <p className="text-gray-600 mt-1">
           Review what each role can do inside SmartOps. Your current role is{' '}
-          <span className="font-semibold text-gray-800">{profile?.role ?? 'loading…'}</span>.
+          <span className="font-semibold text-gray-800">
+            {profile?.role ?? (profileLoading ? 'loading…' : 'unknown')}
+          </span>
+          .
         </p>
       </div>
 

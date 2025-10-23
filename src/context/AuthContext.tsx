@@ -68,15 +68,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return;
     }
 
-    const currentUser = auth.currentUser;
-    if (!currentUser) {
+    const activeUser = auth.currentUser ?? user;
+    if (!activeUser) {
       setProfile(null);
       return;
     }
 
     setProfileLoading(true);
     try {
-      const token = await currentUser.getIdToken();
+      const token = await activeUser.getIdToken();
       const response = await fetch('/api/auth/me', {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -100,7 +100,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     } finally {
       setProfileLoading(false);
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     if (user) {

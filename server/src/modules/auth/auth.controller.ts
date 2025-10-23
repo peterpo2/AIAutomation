@@ -52,7 +52,7 @@ authRouter.get('/me', async (req: AuthenticatedRequest, res) => {
 });
 
 authRouter.get('/users', async (req: AuthenticatedRequest, res) => {
-  const requesterRole = req.user?.role;
+  const requesterRole = req.user?.role as UserRole | undefined;
   if (!requesterRole || !['Admin', 'CEO'].includes(requesterRole)) {
     return res.status(403).json({ message: 'Forbidden' });
   }
@@ -76,14 +76,24 @@ authRouter.get('/users', async (req: AuthenticatedRequest, res) => {
   return res.json({
     users: users.map((user: { id: string; email: string; role: string; createdAt: Date }) => {
       const role = USER_ROLES.includes(user.role as UserRole) ? (user.role as UserRole) : DEFAULT_ROLE;
+      const isPrimaryAdmin = user.email === immutableAssignments.adminEmail;
+      const isExecutive = user.email === immutableAssignments.ceoEmail;
+
+      let editable = false;
+      if (requesterRole === 'Admin') {
+        editable = true;
+      } else if (requesterRole === 'CEO') {
+        editable = !isPrimaryAdmin;
+      }
+
       return {
         id: user.id,
         email: user.email,
         role,
         createdAt: user.createdAt,
-        immutable:
-          user.email === immutableAssignments.adminEmail || user.email === immutableAssignments.ceoEmail,
-        isCeo: user.email === immutableAssignments.ceoEmail,
+        isPrimaryAdmin,
+        isCeo: isExecutive,
+        editable,
       };
     }),
     seats: {
