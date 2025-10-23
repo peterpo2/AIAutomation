@@ -15,6 +15,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { isDropboxConnected, disconnectDropbox, getAuthUrl } from '../lib/dropbox';
 import { requestNotificationPermission } from '../lib/firebase';
+import { apiFetch } from '../lib/apiClient';
 
 export default function Settings() {
   const { user, signOut, profile, profileLoading, refreshProfile } = useAuth();
@@ -99,7 +100,7 @@ export default function Settings() {
     setProfileMessage(null);
     try {
       const token = await user.getIdToken();
-      const response = await fetch('/api/auth/me', {
+      const response = await apiFetch('/auth/me', {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',

@@ -1,3 +1,4 @@
+import { apiFetch } from './apiClient';
 import { VIDEO_STATUSES, type VideoMetadata, type VideoStatus } from './supabase';
 
 export type UploadResponse = {
@@ -56,7 +57,7 @@ const buildAuthHeaders = (token: string) => ({
 });
 
 export const fetchUploads = async (token: string): Promise<VideoMetadata[]> => {
-  const response = await fetch('/api/uploads', {
+  const response = await apiFetch('/uploads', {
     headers: buildAuthHeaders(token),
   });
 
@@ -72,7 +73,7 @@ export const createUpload = async (
   token: string,
   video: VideoMetadata,
 ): Promise<VideoMetadata> => {
-  const response = await fetch('/api/uploads', {
+  const response = await apiFetch('/uploads', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -102,7 +103,7 @@ export const updateUpload = async (
   id: string,
   video: VideoMetadata,
 ): Promise<VideoMetadata> => {
-  const response = await fetch(`/api/uploads/${id}`, {
+  const response = await apiFetch(`/uploads/${id}`, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
@@ -125,7 +126,7 @@ export const updateUpload = async (
 };
 
 export const deleteUpload = async (token: string, id: string): Promise<void> => {
-  const response = await fetch(`/api/uploads/${id}`, {
+  const response = await apiFetch(`/uploads/${id}`, {
     method: 'DELETE',
     headers: buildAuthHeaders(token),
   });

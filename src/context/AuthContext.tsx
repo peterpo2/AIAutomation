@@ -11,6 +11,7 @@ import {
   browserSessionPersistence,
 } from 'firebase/auth';
 import { auth, firebaseConfigError } from '../lib/firebase';
+import { apiFetch } from '../lib/apiClient';
 import type { UserProfile } from '../types/auth';
 
 interface AuthContextType {
@@ -80,7 +81,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setProfileLoading(true);
     try {
       const token = await activeUser.getIdToken();
-      const response = await fetch('/api/auth/me', {
+      const response = await apiFetch('/auth/me', {
         headers: {
           Authorization: `Bearer ${token}`,
         },

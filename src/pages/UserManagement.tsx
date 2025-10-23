@@ -12,6 +12,7 @@ import {
   Info,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { apiFetch } from '../lib/apiClient';
 import type { PermissionMatrix, UserRole, SeatSummary } from '../types/auth';
 
 interface ManagedUser {
@@ -59,12 +60,12 @@ export default function UserManagement() {
     try {
       const token = await user.getIdToken();
       const [usersResponse, permissionsResponse] = await Promise.all([
-        fetch('/api/auth/users', {
+        apiFetch('/auth/users', {
           headers: {
             Authorization: `Bearer ${token}`,
           },
         }),
-        fetch('/api/auth/permissions', {
+        apiFetch('/auth/permissions', {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -136,7 +137,7 @@ export default function UserManagement() {
       const token = await user?.getIdToken();
       if (!token) throw new Error('Authentication required');
 
-      const response = await fetch('/api/auth/role', {
+      const response = await apiFetch('/auth/role', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

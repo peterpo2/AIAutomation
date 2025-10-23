@@ -22,6 +22,7 @@ import {
   Workflow,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { apiFetch, apiBaseUrl } from '../lib/apiClient';
 import type { AutomationNode, AutomationStatus } from '../types/automations';
 
 interface FocusOption {
@@ -104,7 +105,7 @@ export default function Automations() {
       setError(null);
       try {
         const token = await user.getIdToken();
-        const response = await fetch('/api/automations', {
+        const response = await apiFetch('/automations', {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -148,7 +149,7 @@ export default function Automations() {
     setInsightsError(null);
     try {
       const token = await user.getIdToken();
-      const response = await fetch('/api/automations/insights', {
+      const response = await apiFetch('/automations/insights', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -497,7 +498,7 @@ export default function Automations() {
                   <span>
                     Each insight request triggers{' '}
                     <code className="rounded bg-slate-100 px-1 text-slate-900 dark:bg-slate-800 dark:text-slate-200">
-                      /api/automations/insights
+                      {`${apiBaseUrl}/automations/insights`}
                     </code>{' '}
                     for OpenAI-powered guidance.
                   </span>

@@ -15,6 +15,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { apiFetch } from '../lib/apiClient';
 import type { PermissionMatrix, SeatSummary, UserRole } from '../types/auth';
 
 interface ManagedUser {
@@ -89,7 +90,7 @@ export default function Permissions() {
       setMatrixError(null);
       try {
         const token = await user.getIdToken();
-        const response = await fetch('/api/auth/permissions', {
+        const response = await apiFetch('/auth/permissions', {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -144,7 +145,7 @@ export default function Permissions() {
     setUsersError(null);
     try {
       const token = await user.getIdToken();
-      const response = await fetch('/api/auth/users', {
+      const response = await apiFetch('/auth/users', {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -239,7 +240,7 @@ export default function Permissions() {
     setActionMessage(null);
     try {
       const token = await user.getIdToken();
-      const response = await fetch('/api/auth/users', {
+      const response = await apiFetch('/auth/users', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -283,7 +284,7 @@ export default function Permissions() {
     setActionMessage(null);
     try {
       const token = await user.getIdToken();
-      const response = await fetch(`/api/auth/users/${selectedUser.id}`, {
+      const response = await apiFetch(`/auth/users/${selectedUser.id}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -325,7 +326,7 @@ export default function Permissions() {
     setActionMessage(null);
     try {
       const token = await user.getIdToken();
-      const response = await fetch(`/api/auth/users/${selectedUser.id}`, {
+      const response = await apiFetch(`/auth/users/${selectedUser.id}`, {
         method: 'DELETE',
         headers: {
           Authorization: `Bearer ${token}`,
