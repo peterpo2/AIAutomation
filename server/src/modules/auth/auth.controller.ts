@@ -12,22 +12,6 @@ import {
 import { getImmutableAssignments, getAdminEmail, getCeoEmail } from './reserved-users.js';
 import { getFirebaseAdmin } from './firebase.service.js';
 
-const parsePositiveNumber = (value: string | undefined, fallback: number): number => {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-};
-
-const RESERVED_ROLES: UserRole[] = ['Admin', 'CEO'];
-const MAX_TEAM_MEMBERS = parsePositiveNumber(process.env.SMARTOPS_MAX_TEAM, 5);
-const MAX_USER_SEATS = parsePositiveNumber(
-  process.env.SMARTOPS_MAX_USERS,
-  MAX_TEAM_MEMBERS + RESERVED_ROLES.length,
-);
-const MAX_STANDARD_USERS = Math.min(
-  MAX_TEAM_MEMBERS,
-  Math.max(MAX_USER_SEATS - RESERVED_ROLES.length, 0),
-);
-
 class HttpError extends Error {
   status: number;
 
@@ -73,57 +57,6 @@ const ensureReservedRoleCompliance = (
   }
 };
 
-const ensureSeatCapacity = async (targetRole: UserRole, existingUser?: { role: string }) => {
-  if (RESERVED_ROLES.includes(targetRole)) {
-    return;
-  }
-
-  if (!existingUser) {
-    const [totalUsers, standardUsers] = await Promise.all([
-      prisma.user.count(),
-      prisma.user.count({
-        where: {
-          role: {
-            notIn: RESERVED_ROLES,
-          },
-        },
-      }),
-    ]);
-
-    if (totalUsers >= MAX_USER_SEATS) {
-      throw new HttpError(400, `Maximum user capacity of ${MAX_USER_SEATS} has been reached.`);
-    }
-
-    if (standardUsers >= MAX_STANDARD_USERS) {
-      throw new HttpError(
-        400,
-        `All ${MAX_STANDARD_USERS} standard seats are in use. Remove a member before inviting another.`,
-      );
-    }
-
-    return;
-  }
-
-  const currentRole = toRole(existingUser.role);
-  const currentlyStandard = !RESERVED_ROLES.includes(currentRole);
-  if (!currentlyStandard) {
-    const standardUsers = await prisma.user.count({
-      where: {
-        role: {
-          notIn: RESERVED_ROLES,
-        },
-      },
-    });
-
-    if (standardUsers >= MAX_STANDARD_USERS) {
-      throw new HttpError(
-        400,
-        `All ${MAX_STANDARD_USERS} standard seats are in use. Remove a member before inviting another.`,
-      );
-    }
-  }
-};
-
 const mapManagedUser = (
   user: { id: string; email: string; role: string; createdAt: Date },
   requesterRole: UserRole,
@@ -133,12 +66,7 @@ const mapManagedUser = (
   const isPrimaryAdmin = user.email === assignments.adminEmail;
   const isExecutive = user.email === assignments.ceoEmail;
 
-  let editable = false;
-  if (requesterRole === 'Admin') {
-    editable = true;
-  } else if (requesterRole === 'CEO') {
-    editable = !isPrimaryAdmin;
-  }
+  const editable = requesterRole === 'Admin' || requesterRole === 'CEO';
 
   return {
     id: user.id,
@@ -197,31 +125,12 @@ authRouter.get('/users', async (req: AuthenticatedRequest, res) => {
     return res.status(403).json({ message: 'Forbidden' });
   }
 
-  const [users, totalUsers, standardUsers] = await Promise.all([
-    prisma.user.findMany({
-      orderBy: { createdAt: 'desc' },
-    }),
-    prisma.user.count(),
-    prisma.user.count({
-      where: {
-        role: {
-          notIn: RESERVED_ROLES,
-        },
-      },
-    }),
-  ]);
+  const users = await prisma.user.findMany({
+    orderBy: { createdAt: 'desc' },
+  });
 
   return res.json({
     users: users.map((user: ManagedUser) => mapManagedUser(user, requesterRole)),
-    seats: {
-      limit: MAX_USER_SEATS,
-      reservedRoles: RESERVED_ROLES,
-      totalUsed: totalUsers,
-      remainingTotal: Math.max(MAX_USER_SEATS - totalUsers, 0),
-      standardLimit: MAX_STANDARD_USERS,
-      standardUsed: standardUsers,
-      remainingStandard: Math.max(MAX_STANDARD_USERS - standardUsers, 0),
-    },
   });
 });
 
@@ -243,17 +152,6 @@ authRouter.post('/role', async (req: AuthenticatedRequest, res) => {
 
   try {
     ensureReservedRoleCompliance(requesterRole, email, role);
-  } catch (error) {
-    if (error instanceof HttpError) {
-      return res.status(error.status).json({ message: error.message });
-    }
-    throw error;
-  }
-
-  const existingUser = await prisma.user.findUnique({ where: { email } });
-
-  try {
-    await ensureSeatCapacity(role, existingUser ?? undefined);
   } catch (error) {
     if (error instanceof HttpError) {
       return res.status(error.status).json({ message: error.message });
@@ -295,7 +193,6 @@ authRouter.post('/users', async (req: AuthenticatedRequest, res) => {
 
   try {
     ensureReservedRoleCompliance(requesterRole, normalizedEmail, role);
-    await ensureSeatCapacity(role);
   } catch (error) {
     if (error instanceof HttpError) {
       return res.status(error.status).json({ message: error.message });
@@ -378,9 +275,6 @@ authRouter.patch('/users/:id', async (req: AuthenticatedRequest, res) => {
   if (nextRole) {
     try {
       ensureReservedRoleCompliance(requesterRole, email ? normalizeEmail(email) : userRecord.email, nextRole);
-      if (role) {
-        await ensureSeatCapacity(nextRole, userRecord);
-      }
     } catch (error) {
       if (error instanceof HttpError) {
         return res.status(error.status).json({ message: error.message });

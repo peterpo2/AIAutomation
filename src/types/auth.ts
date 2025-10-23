@@ -30,12 +30,3 @@ export interface PermissionMatrix {
   };
 }
 
-export interface SeatSummary {
-  limit: number;
-  reservedRoles: UserRole[];
-  totalUsed: number;
-  remainingTotal: number;
-  standardLimit: number;
-  standardUsed: number;
-  remainingStandard: number;
-}

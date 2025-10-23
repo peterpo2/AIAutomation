@@ -4,19 +4,17 @@ import {
   AlertCircle,
   CheckCircle2,
   CircleDashed,
-  Crown,
   Info,
   Loader2,
   Mail,
   Plus,
   Search,
   ShieldAlert,
-  ShieldCheck,
   Trash2,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../lib/apiClient';
-import type { PermissionMatrix, SeatSummary, UserRole } from '../types/auth';
+import type { PermissionMatrix, UserRole } from '../types/auth';
 
 interface ManagedUser {
   id: string;
@@ -54,7 +52,6 @@ export default function Permissions() {
   const [matrixError, setMatrixError] = useState<string | null>(null);
 
   const [users, setUsers] = useState<ManagedUser[]>([]);
-  const [seats, setSeats] = useState<SeatSummary | null>(null);
   const [usersLoading, setUsersLoading] = useState(false);
   const [usersError, setUsersError] = useState<string | null>(null);
 
@@ -156,9 +153,8 @@ export default function Permissions() {
         throw new Error(data?.message ?? 'Unable to load workspace users.');
       }
 
-      const data = (await response.json()) as { users: ManagedUser[]; seats?: SeatSummary };
+      const data = (await response.json()) as { users: ManagedUser[] };
       setUsers(data.users);
-      setSeats(data.seats ?? null);
       setEmailDrafts(
         data.users.reduce<Record<string, string>>((acc, item) => {
           acc[item.id] = item.email;
@@ -181,7 +177,6 @@ export default function Permissions() {
       const message = error instanceof Error ? error.message : 'Unable to load workspace users.';
       setUsersError(message);
       setUsers([]);
-      setSeats(null);
     } finally {
       setUsersLoading(false);
     }
@@ -223,6 +218,8 @@ export default function Permissions() {
       .map((permissionKey) => permissionLookup.get(permissionKey))
       .filter((permission): permission is PermissionMatrix['permissions'][number] => Boolean(permission));
   }, [matrix, selectedRole, permissionLookup]);
+
+  const canModifySelectedUser = Boolean(selectedUser) && isPrivileged;
 
   const ownPermissions = useMemo(() => {
     if (!matrix || !profile) return [] as PermissionMatrix['permissions'];
@@ -363,9 +360,6 @@ export default function Permissions() {
     }
   };
 
-  const primaryAdminEmail = matrix?.immutableAssignments.adminEmail;
-  const ceoEmail = matrix?.immutableAssignments.ceoEmail;
-
   return (
     <div className="space-y-6">
       <div>
@@ -407,29 +401,6 @@ export default function Permissions() {
         </div>
       ) : isPrivileged ? (
         <>
-          <div className="grid gap-3 md:grid-cols-2">
-            {[{ role: 'Admin' as const, label: 'Administrator', email: primaryAdminEmail }, { role: 'CEO' as const, label: 'Executive (CEO)', email: ceoEmail }].map(
-              (entry) => (
-                <div key={entry.role} className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-                  <div className="flex items-center gap-3">
-                    <span className={`inline-flex h-10 w-10 items-center justify-center rounded-lg bg-gray-50 ${entry.role === 'Admin' ? 'text-red-600' : 'text-amber-600'}`}>
-                      {entry.role === 'Admin' ? <ShieldCheck className="h-5 w-5" /> : <Crown className="h-5 w-5" />}
-                    </span>
-                    <div>
-                      <p className="text-sm font-semibold text-gray-800">{entry.label}</p>
-                      <p className="text-xs text-gray-500">{entry.email ?? 'No account reserved yet'}</p>
-                    </div>
-                  </div>
-                  <p className="mt-3 text-xs text-gray-500">
-                    {entry.role === 'Admin'
-                      ? 'Holds full system control including automations, integrations, and policy enforcement.'
-                      : 'Provides executive oversight with approvals, reporting access, and escalation alerts.'}
-                  </p>
-                </div>
-              ),
-            )}
-          </div>
-
           <div className="grid gap-6 lg:grid-cols-[320px,1fr]">
             <motion.div
               initial={{ opacity: 0, y: 12 }}
@@ -453,26 +424,6 @@ export default function Permissions() {
                   {createOpen ? 'Close' : 'Create'}
                 </button>
               </div>
-
-              {seats && (
-                <div className="rounded-lg border border-gray-100 bg-gray-50 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Seat utilisation</p>
-                  <div className="mt-2">
-                    <p className="text-sm text-gray-700 font-medium">
-                      Total seats:{' '}
-                      <span className="font-semibold text-gray-900">
-                        {seats.totalUsed} / {seats.limit}
-                      </span>
-                    </p>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Standard members:{' '}
-                      <span className="font-medium text-gray-700">
-                        {seats.standardUsed} / {seats.standardLimit}
-                      </span>
-                    </p>
-                  </div>
-                </div>
-              )}
 
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -604,12 +555,6 @@ export default function Permissions() {
                     </div>
                   </div>
 
-                  {!selectedUser.editable && (
-                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                      This account is protected. Only the workspace administrator can adjust its details.
-                    </div>
-                  )}
-
                   <div className="space-y-4">
                     <div>
                       <label className="text-xs font-medium text-gray-600">Email</label>
@@ -622,7 +567,7 @@ export default function Permissions() {
                             onChange={(event) =>
                               setEmailDrafts((prev) => ({ ...prev, [selectedUser.id]: event.target.value }))
                             }
-                            disabled={!selectedUser.editable}
+                            disabled={!canModifySelectedUser}
                             className="w-full rounded-lg border border-gray-200 py-2 pl-9 pr-3 text-sm focus:border-red-300 focus:outline-none focus:ring-2 focus:ring-red-100 disabled:bg-gray-100 disabled:text-gray-500"
                           />
                         </div>
@@ -636,7 +581,7 @@ export default function Permissions() {
                         onChange={(event) =>
                           setRoleDrafts((prev) => ({ ...prev, [selectedUser.id]: event.target.value as UserRole }))
                         }
-                        disabled={!selectedUser.editable}
+                        disabled={!canModifySelectedUser}
                         className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-red-300 focus:outline-none focus:ring-2 focus:ring-red-100 disabled:bg-gray-100 disabled:text-gray-500"
                       >
                         {matrix.roles.map((role) => (
@@ -651,7 +596,7 @@ export default function Permissions() {
                   <div className="flex flex-wrap gap-2">
                     <button
                       onClick={handleSaveUser}
-                      disabled={!selectedUser.editable || savingUserId === selectedUser.id}
+                      disabled={!canModifySelectedUser || savingUserId === selectedUser.id}
                       className="inline-flex items-center gap-2 rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-600 disabled:opacity-50"
                     >
                       {savingUserId === selectedUser.id && <Loader2 className="w-4 h-4 animate-spin" />}
@@ -660,7 +605,7 @@ export default function Permissions() {
                     <button
                       onClick={handleDeleteUser}
                       disabled={
-                        !selectedUser.editable ||
+                        !canModifySelectedUser ||
                         selectedUser.isPrimaryAdmin ||
                         selectedUser.isCeo ||
                         deletingUserId === selectedUser.id ||
