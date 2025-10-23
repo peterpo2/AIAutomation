@@ -16,7 +16,7 @@ import { isDropboxConnected, disconnectDropbox, getAuthUrl } from '../lib/dropbo
 import { requestNotificationPermission } from '../lib/firebase';
 
 export default function Settings() {
-  const { user, signOut } = useAuth();
+  const { user, signOut, profile, profileLoading } = useAuth();
   const navigate = useNavigate();
   const [darkMode, setDarkMode] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
@@ -85,6 +85,12 @@ export default function Settings() {
           <div>
             <h2 className="text-xl font-bold text-gray-800">User Information</h2>
             <p className="text-gray-600">{user?.email}</p>
+            <p className="text-sm text-gray-500 mt-1">
+              Role:{' '}
+              <span className="font-medium text-gray-700">
+                {profileLoading ? 'Loading…' : profile?.role ?? 'Client'}
+              </span>
+            </p>
           </div>
         </div>
 
@@ -98,6 +104,28 @@ export default function Settings() {
               ? new Date(user.metadata.creationTime).toLocaleDateString()
               : 'N/A'}
           </p>
+          {profile && profile.permissions.length > 0 && (
+            <div className="mt-4">
+              <p className="text-sm font-medium text-gray-700 mb-2">Highlighted permissions</p>
+              <div className="flex flex-wrap gap-2">
+                {profile.permissions.slice(0, 4).map((permission) => {
+                  const spaced = permission.replace(/([A-Z])/g, ' $1').trim();
+                  const formatted = spaced.charAt(0).toUpperCase() + spaced.slice(1).toLowerCase();
+                  return (
+                    <span
+                      key={permission}
+                      className="inline-flex items-center rounded-full bg-red-50 px-3 py-1 text-xs font-medium text-red-600"
+                    >
+                      {formatted}
+                    </span>
+                  );
+                })}
+                {profile.permissions.length > 4 && (
+                  <span className="text-xs text-gray-500">+{profile.permissions.length - 4} more</span>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </motion.div>
 

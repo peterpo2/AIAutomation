@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { getFirebaseAdmin } from './firebase.service.js';
 import { prisma } from './prisma.client.js';
+import { DEFAULT_ROLE, USER_ROLES, type UserRole } from './permissions.js';
 
 export interface AuthenticatedRequest extends Request {
   user?: {
@@ -34,23 +35,43 @@ export const firebaseAuthMiddleware = async (
     }
 
     let user = await prisma.user.findUnique({ where: { email } });
-    const isEnvAdmin =
-      email === process.env.FIREBASE_ADMIN_EMAIL || decoded.uid === process.env.FIREBASE_ADMIN_UID;
+    const envAdminEmail = process.env.FIREBASE_ADMIN_EMAIL;
+    const envAdminUid = process.env.FIREBASE_ADMIN_UID;
+    const envCeoEmail = process.env.FIREBASE_CEO_EMAIL;
+    const envCeoUid = process.env.FIREBASE_CEO_UID;
+
+    const isEnvAdmin = email === envAdminEmail || (!!envAdminUid && decoded.uid === envAdminUid);
+    const isEnvCeo = email === envCeoEmail || (!!envCeoUid && decoded.uid === envCeoUid);
+
+    const resolvedRole: UserRole = isEnvAdmin ? 'Admin' : isEnvCeo ? 'CEO' : DEFAULT_ROLE;
     if (!user) {
       user = await prisma.user.create({
         data: {
           email,
-          role: isEnvAdmin ? 'Admin' : 'Client',
+          role: resolvedRole,
         },
       });
-    } else if (isEnvAdmin && user.role !== 'Admin') {
-      user = await prisma.user.update({
-        where: { email },
-        data: { role: 'Admin' },
-      });
+    } else {
+      const normalizedRole = USER_ROLES.includes(user.role as UserRole) ? (user.role as UserRole) : DEFAULT_ROLE;
+      let nextRole = normalizedRole;
+
+      if (isEnvAdmin && normalizedRole !== 'Admin') {
+        nextRole = 'Admin';
+      } else if (isEnvCeo && normalizedRole !== 'CEO') {
+        nextRole = 'CEO';
+      }
+
+      if (nextRole !== normalizedRole) {
+        user = await prisma.user.update({
+          where: { email },
+          data: { role: nextRole },
+        });
+      }
     }
 
-    req.user = { uid: decoded.uid, email, role: user.role };
+    const role = USER_ROLES.includes(user.role as UserRole) ? (user.role as UserRole) : DEFAULT_ROLE;
+
+    req.user = { uid: decoded.uid, email, role };
     return next();
   } catch (error) {
     console.error('Auth error', error);

@@ -10,8 +10,12 @@ import {
   Zap,
   Menu,
   X,
+  Shield,
+  UserCog,
 } from 'lucide-react';
 import { useState } from 'react';
+import { useAuth } from '../context/AuthContext';
+import type { UserRole } from '../types/auth';
 
 interface LayoutProps {
   children: ReactNode;
@@ -20,14 +24,25 @@ interface LayoutProps {
 export default function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { profile } = useAuth();
 
-  const navItems = [
+  const isManagerRole = (role?: UserRole) => role && ['Admin', 'CEO'].includes(role);
+
+  const baseNavItems = [
     { path: '/dashboard', label: 'Dashboard', icon: Home },
     { path: '/dropbox', label: 'Dropbox', icon: Folder },
     { path: '/uploads', label: 'Uploads', icon: Upload },
     { path: '/reports', label: 'Reports', icon: FileText },
     { path: '/settings', label: 'Settings', icon: Settings },
   ];
+
+  const managementNavItems = isManagerRole(profile?.role)
+    ? [{ path: '/user-management', label: 'User Management', icon: UserCog }]
+    : [];
+
+  const infoNavItems = [{ path: '/permissions', label: 'Permissions', icon: Shield }];
+
+  const navItems = [...baseNavItems, ...managementNavItems, ...infoNavItems];
 
   return (
     <div className="min-h-screen bg-gray-50">

@@ -1,6 +1,14 @@
 import { Router } from 'express';
 import { firebaseAuthMiddleware, AuthenticatedRequest } from './firebase.middleware.js';
 import { prisma } from './prisma.client.js';
+import {
+  DEFAULT_ROLE,
+  PERMISSION_DEFINITIONS,
+  ROLE_DEFINITIONS,
+  ROLE_PERMISSIONS,
+  USER_ROLES,
+  type UserRole,
+} from './permissions.js';
 
 export const authRouter = Router();
 
@@ -11,31 +19,99 @@ authRouter.get('/me', async (req: AuthenticatedRequest, res) => {
   if (!email) {
     return res.status(404).json({ message: 'User not found' });
   }
+
   const user = await prisma.user.findUnique({ where: { email } });
+  const role = USER_ROLES.includes(user?.role as UserRole) ? (user?.role as UserRole) : DEFAULT_ROLE;
+
   return res.json({
-    email: user?.email,
-    role: user?.role,
-    createdAt: user?.createdAt,
+    email: user?.email ?? email,
+    role,
+    createdAt: user?.createdAt ?? null,
+    permissions: ROLE_PERMISSIONS[role],
+    immutableRole: email === process.env.FIREBASE_ADMIN_EMAIL,
+  });
+});
+
+authRouter.get('/users', async (req: AuthenticatedRequest, res) => {
+  const requesterRole = req.user?.role;
+  if (!requesterRole || !['Admin', 'CEO'].includes(requesterRole)) {
+    return res.status(403).json({ message: 'Forbidden' });
+  }
+
+  const users = await prisma.user.findMany({
+    orderBy: { createdAt: 'desc' },
+  });
+
+  return res.json({
+    users: users.map((user: { id: string; email: string; role: string; createdAt: Date }) => {
+      const role = USER_ROLES.includes(user.role as UserRole) ? (user.role as UserRole) : DEFAULT_ROLE;
+      return {
+        id: user.id,
+        email: user.email,
+        role,
+        createdAt: user.createdAt,
+        immutable: user.email === process.env.FIREBASE_ADMIN_EMAIL,
+        isCeo: user.email === process.env.FIREBASE_CEO_EMAIL,
+      };
+    }),
+  });
+});
+
+authRouter.get('/permissions', (_req, res) => {
+  return res.json({
+    roles: ROLE_DEFINITIONS,
+    permissions: PERMISSION_DEFINITIONS,
+    rolePermissions: ROLE_PERMISSIONS,
+    immutableAssignments: {
+      adminEmail: process.env.FIREBASE_ADMIN_EMAIL ?? null,
+      ceoEmail: process.env.FIREBASE_CEO_EMAIL ?? null,
+    },
   });
 });
 
 authRouter.post('/role', async (req: AuthenticatedRequest, res) => {
   const requester = req.user;
-  if (requester?.role !== 'Admin') {
+  if (!requester?.role || !['Admin', 'CEO'].includes(requester.role)) {
     return res.status(403).json({ message: 'Forbidden' });
   }
-  const { email, role } = req.body as { email?: string; role?: string };
+
+  const { email, role } = req.body as { email?: string; role?: UserRole };
   if (!email || !role) {
     return res.status(400).json({ message: 'Email and role required' });
   }
-  const validRoles = ['Admin', 'Team', 'Client'];
-  if (!validRoles.includes(role)) {
+
+  if (!USER_ROLES.includes(role)) {
     return res.status(400).json({ message: 'Invalid role' });
   }
+
+  const adminEmail = process.env.FIREBASE_ADMIN_EMAIL;
+  const ceoEmail = process.env.FIREBASE_CEO_EMAIL;
+
+  if (adminEmail && email === adminEmail && role !== 'Admin') {
+    return res.status(400).json({ message: 'The primary administrator cannot be reassigned.' });
+  }
+
+  if (role === 'Admin' && (!adminEmail || email !== adminEmail)) {
+    return res
+      .status(400)
+      .json({ message: 'Only the configured administrator account can hold the Admin role.' });
+  }
+
+  if (role === 'CEO' && ceoEmail && email !== ceoEmail) {
+    return res
+      .status(400)
+      .json({ message: 'Only the configured executive account can hold the CEO role.' });
+  }
+
+  if (email === adminEmail && requester.role !== 'Admin') {
+    return res.status(403).json({ message: 'Only the administrator can manage the primary admin account.' });
+  }
+
   const user = await prisma.user.upsert({
     where: { email },
     update: { role },
     create: { email, role },
   });
+
   return res.json({ email: user.email, role: user.role });
 });

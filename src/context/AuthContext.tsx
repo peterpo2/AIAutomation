@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState, ReactNode } from 'react';
 import {
   User,
   signInWithEmailAndPassword,
@@ -8,11 +8,15 @@ import {
   sendPasswordResetEmail,
 } from 'firebase/auth';
 import { auth, firebaseConfigError } from '../lib/firebase';
+import type { UserProfile } from '../types/auth';
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
   configError: string | null;
+  profile: UserProfile | null;
+  profileLoading: boolean;
+  refreshProfile: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -21,6 +25,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
@@ -33,6 +38,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [configError, setConfigError] = useState<string | null>(firebaseConfigError);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
 
   useEffect(() => {
     if (!auth) {
@@ -41,13 +48,65 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return;
     }
 
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setUser(user);
+    const unsubscribe = onAuthStateChanged(auth, (nextUser) => {
+      setUser(nextUser);
       setLoading(false);
     });
 
     return unsubscribe;
   }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setProfile(null);
+    }
+  }, [user]);
+
+  const refreshProfile = useCallback(async () => {
+    if (!auth) {
+      setProfile(null);
+      return;
+    }
+
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      setProfile(null);
+      return;
+    }
+
+    setProfileLoading(true);
+    try {
+      const token = await currentUser.getIdToken();
+      const response = await fetch('/api/auth/me', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to load profile');
+      }
+
+      const data = (await response.json()) as UserProfile;
+      setProfile({
+        email: data.email,
+        role: data.role,
+        createdAt: data.createdAt,
+        permissions: data.permissions,
+        immutableRole: data.immutableRole,
+      });
+    } catch (error) {
+      console.error('Failed to refresh user profile', error);
+    } finally {
+      setProfileLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (user) {
+      void refreshProfile();
+    }
+  }, [user, refreshProfile]);
 
   const signIn = async (email: string, password: string) => {
     if (!auth) {
@@ -68,6 +127,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       throw new Error(configError ?? 'Authentication service is not configured.');
     }
     await firebaseSignOut(auth);
+    setProfile(null);
   };
 
   const resetPassword = async (email: string) => {
@@ -81,6 +141,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     user,
     loading,
     configError,
+    profile,
+    profileLoading,
+    refreshProfile,
     signIn,
     signUp,
     signOut,

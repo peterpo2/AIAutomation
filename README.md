@@ -57,7 +57,7 @@ The file includes:
 - **Backend variables** (`DATABASE_URL`, `DROPBOX_*`, `OPENAI_API_KEY`, etc.).
 - **Database credentials** (`POSTGRES_*`) reused by both the app and the bundled Postgres container.
 
-> **Tip:** The backend automatically promotes the Firebase user whose email or UID matches `FIREBASE_ADMIN_EMAIL` / `FIREBASE_ADMIN_UID` to the `Admin` role inside PostgreSQL.
+> **Tip:** The backend automatically promotes the Firebase user whose email or UID matches `FIREBASE_ADMIN_EMAIL` / `FIREBASE_ADMIN_UID` to the `Admin` role inside PostgreSQL. You can also reserve an executive account by defining `FIREBASE_CEO_EMAIL` or `FIREBASE_CEO_UID`; that user is synchronised with the `CEO` role on every login.
 
 ## Run with Docker (local or VPS)
 
@@ -160,8 +160,10 @@ model JobsLog {
 
 | Method | Endpoint | Description |
 | --- | --- | --- |
-| GET | `/api/auth/me` | Returns current user profile & role |
-| POST | `/api/auth/role` | Admin-only role assignment |
+| GET | `/api/auth/me` | Returns current user profile, role, and resolved permissions |
+| GET | `/api/auth/users` | Admin/CEO: list all workspace members and immutable assignments |
+| GET | `/api/auth/permissions` | Any authenticated user: role catalogue with permission matrix |
+| POST | `/api/auth/role` | Admin/CEO: assign roles (immutable admin safeguards) |
 | POST | `/api/dropbox/refresh` | Enqueue Dropbox sync |
 | GET | `/api/dropbox/temporary-link/:id` | Get short-lived video preview link |
 | POST | `/api/dropbox/webhook` | Dropbox webhook (signature required) |
@@ -186,6 +188,8 @@ The stack brings up:
 - Backend: http://localhost:8080
 - PostgreSQL: localhost:5432 (user `postgres`, password `supersecret`)
 - Redis: localhost:6379
+
+When the stack is running, navigating to `http://localhost` immediately renders the SmartOps login screen via the bundled Nginx frontend container.
 
 After containers start:
 
