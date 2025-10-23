@@ -13,6 +13,7 @@ import {
   Shield,
   UserCog,
   Users,
+  Workflow,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
@@ -36,6 +37,7 @@ export default function Layout({ children }: LayoutProps) {
     { path: '/dropbox', label: 'Dropbox', icon: Folder },
     { path: '/uploads', label: 'Uploads', icon: Upload },
     { path: '/reports', label: 'Reports', icon: FileText },
+    { path: '/automations', label: 'Automations', icon: Workflow },
     { path: '/settings', label: 'Settings', icon: Settings },
   ];
 

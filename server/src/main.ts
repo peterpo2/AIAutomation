@@ -15,6 +15,7 @@ import { swaggerSpec } from './swagger.js';
 import { errorHandler } from './modules/auth/error.middleware.js';
 import { captionGeneratorRouter } from './modules/caption-generator/caption-generator.controller.js';
 import { bootstrapWorkspaceUsers } from './modules/auth/user.bootstrap.js';
+import { automationsRouter } from './modules/automations/automations.controller.js';
 
 dotenv.config();
 
@@ -52,6 +53,7 @@ app.use('/api/uploads', uploadsRouter);
 app.use('/api/reports', reportsRouter);
 app.use('/api/notifications', notificationsRouter);
 app.use('/api/captions', captionGeneratorRouter);
+app.use('/api/automations', automationsRouter);
 app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 app.get('/health', (_req, res) => {

@@ -13,6 +13,7 @@ import Settings from './pages/Settings';
 import Permissions from './pages/Permissions';
 import UserManagement from './pages/UserManagement';
 import Clients from './pages/Clients';
+import Automations from './pages/Automations';
 
 function App() {
   useEffect(() => {
@@ -38,6 +39,7 @@ function App() {
                     <Route path="/dropbox" element={<DropboxPage />} />
                     <Route path="/uploads" element={<Uploads />} />
                     <Route path="/reports" element={<Reports />} />
+                    <Route path="/automations" element={<Automations />} />
                     <Route path="/settings" element={<Settings />} />
                     <Route
                       path="/user-management"
