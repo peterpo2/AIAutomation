@@ -12,6 +12,7 @@ export default function Login() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
   const { signIn, signUp, resetPassword, configError, user } = useAuth();
   const navigate = useNavigate();
 
@@ -38,10 +39,10 @@ export default function Login() {
         setSuccess('Password reset email sent. Check your inbox.');
         setShowReset(false);
       } else if (isSignUp) {
-        await signUp(email, password);
+        await signUp(email, password, rememberMe);
         navigate('/dashboard', { replace: true });
       } else {
-        await signIn(email, password);
+        await signIn(email, password, rememberMe);
         navigate('/dashboard', { replace: true });
       }
     } catch (err) {
@@ -158,6 +159,32 @@ export default function Login() {
             </div>
           )}
 
+          {!showReset && !isSignUp && (
+            <div className="flex items-center justify-between">
+              <label className="flex items-center text-sm text-gray-600">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(event) => setRememberMe(event.target.checked)}
+                  className="mr-2 h-4 w-4 rounded border-gray-300 text-red-500 focus:ring-red-500"
+                />
+                Save credentials
+              </label>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowReset(true);
+                  setError('');
+                  setSuccess('');
+                }}
+                className="text-sm text-red-500 hover:text-red-600 transition-colors"
+              >
+                Forgot password?
+              </button>
+            </div>
+          )}
+
           <motion.button
             whileHover={{ scale: 1.01 }}
             whileTap={{ scale: 0.99 }}
@@ -178,23 +205,29 @@ export default function Login() {
         <div className="mt-6 text-center space-y-2">
           {!showReset && (
             <button
-              onClick={() => setIsSignUp(!isSignUp)}
+              onClick={() => {
+                setIsSignUp(!isSignUp);
+                setShowReset(false);
+                setRememberMe(false);
+              }}
               className="text-sm text-gray-600 hover:text-gray-800 transition-colors"
             >
               {isSignUp ? 'Already have an account? Sign in' : "Don't have an account? Sign up"}
             </button>
           )}
 
-          <button
-            onClick={() => {
-              setShowReset(!showReset);
-              setError('');
-              setSuccess('');
-            }}
-            className="block w-full text-sm text-red-500 hover:text-red-600 transition-colors"
-          >
-            {showReset ? 'Back to sign in' : 'Forgot password?'}
-          </button>
+          {showReset && (
+            <button
+              onClick={() => {
+                setShowReset(false);
+                setError('');
+                setSuccess('');
+              }}
+              className="block w-full text-sm text-red-500 hover:text-red-600 transition-colors"
+            >
+              Back to sign in
+            </button>
+          )}
         </div>
 
         <div className="mt-8 pt-6 border-t border-gray-200 text-center">

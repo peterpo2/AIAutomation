@@ -6,6 +6,9 @@ import {
   signOut as firebaseSignOut,
   onAuthStateChanged,
   sendPasswordResetEmail,
+  setPersistence,
+  browserLocalPersistence,
+  browserSessionPersistence,
 } from 'firebase/auth';
 import { auth, firebaseConfigError } from '../lib/firebase';
 import type { UserProfile } from '../types/auth';
@@ -17,8 +20,8 @@ interface AuthContextType {
   profile: UserProfile | null;
   profileLoading: boolean;
   refreshProfile: () => Promise<void>;
-  signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string) => Promise<void>;
+  signIn: (email: string, password: string, remember?: boolean) => Promise<void>;
+  signUp: (email: string, password: string, remember?: boolean) => Promise<void>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
 }
@@ -108,17 +111,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [user, refreshProfile]);
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = async (email: string, password: string, remember = false) => {
     if (!auth) {
       throw new Error(configError ?? 'Authentication service is not configured.');
     }
+    await setPersistence(auth, remember ? browserLocalPersistence : browserSessionPersistence);
     await signInWithEmailAndPassword(auth, email, password);
   };
 
-  const signUp = async (email: string, password: string) => {
+  const signUp = async (email: string, password: string, remember = false) => {
     if (!auth) {
       throw new Error(configError ?? 'Authentication service is not configured.');
     }
+    await setPersistence(auth, remember ? browserLocalPersistence : browserSessionPersistence);
     await createUserWithEmailAndPassword(auth, email, password);
   };
 

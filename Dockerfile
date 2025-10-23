@@ -74,7 +74,10 @@ COPY --from=backend-build /backend/node_modules ./node_modules
 COPY --from=backend-build /backend/dist ./dist
 COPY server/package.json ./package.json
 COPY --from=backend-build /backend/src/prisma ./prisma
+COPY server/docker-entrypoint.sh ./docker-entrypoint.sh
+RUN chmod +x docker-entrypoint.sh
 
 EXPOSE 8080
 
+ENTRYPOINT ["./docker-entrypoint.sh"]
 CMD ["node", "dist/main.js"]
