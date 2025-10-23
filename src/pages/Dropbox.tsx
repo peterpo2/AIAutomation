@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
@@ -19,6 +19,8 @@ import {
   getThumbnail,
   DropboxFile,
   type DropboxCacheOptions,
+  connectUsingRefreshToken,
+  hasEnvironmentDropboxCredentials,
 } from '../lib/dropbox';
 
 export default function DropboxPage() {
@@ -33,10 +35,14 @@ export default function DropboxPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
 
+  const envConnectAttemptedRef = useRef(false);
+
   const dropboxConfigured = useMemo(() => {
-    const key = import.meta.env.VITE_DROPBOX_APP_KEY;
+    const key = import.meta.env.VITE_DROPBOX_APP_KEY ?? import.meta.env.DROPBOX_APP_KEY;
     return typeof key === 'string' && key.trim().length > 0;
   }, []);
+
+  const envAutoConnectReady = useMemo(() => hasEnvironmentDropboxCredentials(), []);
 
   const isVideoFile = useCallback((filename: string) => {
     const videoExtensions = ['.mp4', '.mov', '.avi', '.mkv', '.webm'];
@@ -50,7 +56,7 @@ export default function DropboxPage() {
       try {
         const fileList = await listFiles(path, options);
         setFiles(fileList);
-        setThumbnails((prev) => {
+        setThumbnails((prev: Map<string, string>) => {
           const next = new Map<string, string>();
           fileList.forEach((file) => {
             const existing = prev.get(file.path);
@@ -70,7 +76,7 @@ export default function DropboxPage() {
             }),
           );
 
-          setThumbnails((prev) => {
+          setThumbnails((prev: Map<string, string>) => {
             const next = new Map(prev);
             results.forEach(({ path: filePath, thumb }) => {
               if (thumb) {
@@ -106,10 +112,36 @@ export default function DropboxPage() {
           setErrorMessage(error instanceof Error ? error.message : 'Failed to connect to Dropbox.');
         }
       })();
-    } else if (connected) {
-      void loadFiles('');
+      return;
     }
-  }, [searchParams, connected, navigate, loadFiles]);
+
+    if (connected) {
+      void loadFiles('');
+      return;
+    }
+
+    if (!envConnectAttemptedRef.current && envAutoConnectReady) {
+      envConnectAttemptedRef.current = true;
+      (async () => {
+        try {
+          const success = await connectUsingRefreshToken();
+          if (success) {
+            setConnected(true);
+            await loadFiles('', { forceRefresh: true });
+          } else {
+            setErrorMessage('Dropbox environment credentials are incomplete. Please verify your configuration.');
+          }
+        } catch (error) {
+          console.error('Error connecting to Dropbox using environment credentials:', error);
+          setErrorMessage(
+            error instanceof Error
+              ? error.message
+              : 'Unable to connect using Dropbox environment credentials.',
+          );
+        }
+      })();
+    }
+  }, [searchParams, connected, navigate, loadFiles, envAutoConnectReady]);
 
   const currentPath = useMemo(() => pathStack[pathStack.length - 1] ?? '', [pathStack]);
 
@@ -127,7 +159,7 @@ export default function DropboxPage() {
   };
 
   const openFolder = (path: string) => {
-    setPathStack((prev) => [...prev, path]);
+    setPathStack((prev: string[]) => [...prev, path]);
     void loadFiles(path);
   };
 
@@ -142,7 +174,7 @@ export default function DropboxPage() {
   }, [currentPath, loadFiles]);
 
   const toggleFileSelection = (filePath: string) => {
-    setSelectedFiles((prev) => {
+    setSelectedFiles((prev: Set<string>) => {
       const updated = new Set(prev);
       if (updated.has(filePath)) {
         updated.delete(filePath);
@@ -154,7 +186,7 @@ export default function DropboxPage() {
   };
 
   const saveToQueue = () => {
-    const selected = files.filter((f) => selectedFiles.has(f.path));
+    const selected = files.filter((f: DropboxFile) => selectedFiles.has(f.path));
     localStorage.setItem('selected_videos', JSON.stringify(selected));
     navigate('/uploads');
   };

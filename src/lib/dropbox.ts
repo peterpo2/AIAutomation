@@ -10,6 +10,16 @@ const THUMBNAIL_CACHE_PREFIX = `${CACHE_PREFIX}thumbnail:`;
 const DEFAULT_LIST_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const DEFAULT_THUMBNAIL_TTL_MS = 60 * 60 * 1000; // 1 hour
 
+const getEnvValue = (...keys: (keyof ImportMetaEnv)[]): string | null => {
+  for (const key of keys) {
+    const value = import.meta.env[key];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return null;
+};
+
 const blobToDataUrl = (blob: Blob): Promise<string> =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -40,11 +50,19 @@ type ThumbnailResult = files.FileMetadata & { fileBlob?: Blob };
 let dropboxAuthInstance: DropboxAuth | null = null;
 
 const getDropboxAppKey = (): string => {
-  const key = import.meta.env.VITE_DROPBOX_APP_KEY?.trim();
+  const key = getEnvValue('VITE_DROPBOX_APP_KEY', 'DROPBOX_APP_KEY');
   if (!key) {
     throw new Error('Dropbox integration is not configured. Please set VITE_DROPBOX_APP_KEY in your environment file.');
   }
   return key;
+};
+
+const getDropboxAppSecret = (): string | null => {
+  return getEnvValue('VITE_DROPBOX_APP_SECRET', 'DROPBOX_APP_SECRET');
+};
+
+const getDropboxRefreshToken = (): string | null => {
+  return getEnvValue('VITE_DROPBOX_REFRESH_TOKEN', 'DROPBOX_REFRESH_TOKEN');
 };
 
 const getDropboxAuthClient = (): DropboxAuth => {
@@ -59,7 +77,7 @@ const resolveRedirectUri = (): string => {
     throw new Error('Dropbox redirect resolution is only available in the browser.');
   }
 
-  const configuredUri = import.meta.env.VITE_DROPBOX_REDIRECT_URI?.trim();
+  const configuredUri = getEnvValue('VITE_DROPBOX_REDIRECT_URI', 'DROPBOX_REDIRECT_URI');
   if (!configuredUri) {
     return `${window.location.origin}/dropbox-callback`;
   }
@@ -111,6 +129,7 @@ export const handleAuthCallback = async (code: string) => {
     const response = await dropboxAuth.getAccessTokenFromCode(redirectUri, code);
     const { access_token: accessToken } = response.result as DropboxTokenResult;
     localStorage.setItem('dropbox_access_token', accessToken);
+    dropboxAuthInstance?.setAccessToken(accessToken);
     clearDropboxCache();
     return accessToken;
   } catch (error) {
@@ -133,6 +152,56 @@ export const disconnectDropbox = () => {
 
 export const isDropboxConnected = (): boolean => {
   return !!localStorage.getItem('dropbox_access_token');
+};
+
+export const hasEnvironmentDropboxCredentials = (): boolean => {
+  return !!(getDropboxAppSecret() && getDropboxRefreshToken());
+};
+
+export const connectUsingRefreshToken = async (): Promise<boolean> => {
+  if (isDropboxConnected()) {
+    return true;
+  }
+
+  const refreshToken = getDropboxRefreshToken();
+  const appSecret = getDropboxAppSecret();
+  if (!refreshToken || !appSecret) {
+    return false;
+  }
+
+  const appKey = getDropboxAppKey();
+  const requestBody = new URLSearchParams({
+    grant_type: 'refresh_token',
+    refresh_token: refreshToken,
+  });
+
+  const response = await fetch('https://api.dropboxapi.com/oauth2/token', {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${btoa(`${appKey}:${appSecret}`)}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: requestBody.toString(),
+  });
+
+  const data = (await response.json()) as DropboxTokenResult & {
+    error_description?: string;
+    error?: string;
+  };
+
+  if (!response.ok) {
+    throw new Error(data.error_description ?? data.error ?? 'Failed to refresh Dropbox access token.');
+  }
+
+  const { access_token: accessToken } = data;
+  if (!accessToken) {
+    throw new Error('Dropbox token response did not include an access token.');
+  }
+
+  localStorage.setItem('dropbox_access_token', accessToken);
+  dropboxAuthInstance?.setAccessToken(accessToken);
+  clearDropboxCache();
+  return true;
 };
 
 export interface DropboxFile {
