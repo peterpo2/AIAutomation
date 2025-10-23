@@ -175,6 +175,11 @@ model JobsLog {
 - **Caption Generator:** Admin/Team-only endpoint to refresh captions & hashtags via OpenAI with rate limiting
 - **Swagger:** Available at `/api/docs`
 
+## Frontend Experience
+
+- **Automations Control Room:** Redesigned automation map with AI focus lenses, timeline view, and runtime insights. The UI now adapts cleanly to dark mode, ensuring metrics, call-to-action buttons, and status badges remain legible when users enable the theme toggle in **Settings → Preferences**.
+- **Actionable Error Feedback:** API failures on insights or node fetches are surfaced in-app and logged to the browser console to help operators triage connectivity or credential issues faster during demos.
+
 ## API Quick Reference
 
 | Method | Endpoint | Description |
