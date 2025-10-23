@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Upload, FileText, TrendingUp, Calendar, Bell, Video } from 'lucide-react';
+import { FileText, Calendar, Bell, Video } from 'lucide-react';
 
 export default function Dashboard() {
   const today = new Date();
@@ -38,13 +38,6 @@ export default function Dashboard() {
 
   const weekdayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-  const stats = [
-    { label: 'Posts Scheduled', value: '12', icon: Calendar, color: 'bg-blue-500' },
-    { label: 'Pending Uploads', value: '5', icon: Upload, color: 'bg-orange-500' },
-    { label: 'Total Videos', value: '47', icon: Video, color: 'bg-green-500' },
-    { label: 'Weekly Views', value: '24.5K', icon: TrendingUp, color: 'bg-red-500' },
-  ];
-
   const recentActivity = [
     { action: 'Video added from Dropbox', time: '2 hours ago', icon: Video },
     { action: 'Post scheduled for TikTok', time: '5 hours ago', icon: Calendar },
@@ -52,55 +45,49 @@ export default function Dashboard() {
   ];
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-800">Dashboard</h1>
-        <p className="text-gray-600 mt-1">Welcome back to SmartOps</p>
-      </div>
+    <div className="space-y-8">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1 }}
+        className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white rounded-2xl shadow-xl p-8"
+      >
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="flex items-center gap-2 text-sm uppercase tracking-wide text-white/70">
+              <Calendar className="w-4 h-4" /> SmartOps Scheduler
+            </p>
+            <h1 className="text-3xl font-semibold mt-2">Plan your week with confidence</h1>
+            <p className="text-white/70 mt-2 max-w-xl">
+              Stay focused on the campaigns that matter. Your calendar and notifications are
+              perfectly in sync so you never miss a milestone.
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="text-xs uppercase tracking-wide text-white/60">Today</p>
+            <p className="text-lg font-semibold">{todayLabel}</p>
+          </div>
+        </div>
+      </motion.div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {stats.map((stat, index) => (
-          <motion.div
-            key={stat.label}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.1 }}
-            className="bg-white rounded-xl shadow-lg p-6"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-600 text-sm font-medium">{stat.label}</p>
-                <p className="text-3xl font-bold text-gray-800 mt-2">{stat.value}</p>
-              </div>
-              <div className={`${stat.color} p-3 rounded-lg`}>
-                <stat.icon className="w-6 h-6 text-white" />
-              </div>
-            </div>
-          </motion.div>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
+      <div className="grid grid-cols-1 xl:grid-cols-[1.7fr_1fr] gap-6">
+        <div className="space-y-6">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.4 }}
-            className="bg-white rounded-xl shadow-lg p-6"
+            className="bg-white rounded-2xl shadow-xl p-6 border border-gray-100"
           >
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-              <div>
-                <h2 className="text-xl font-bold text-gray-800">Team calendar</h2>
-                <p className="text-sm text-gray-600">Track campaign milestones and automation schedules.</p>
-              </div>
-              <div className="text-right">
-                <p className="text-xs uppercase tracking-wide text-gray-500">Today</p>
-                <p className="text-sm font-semibold text-red-600">{todayLabel}</p>
-              </div>
-            </div>
-
             <div className="flex items-center justify-between text-gray-700 mb-4">
-              <h3 className="text-lg font-semibold">{monthLabel}</h3>
+              <div>
+                <h2 className="text-2xl font-semibold text-gray-900">Team calendar</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Track campaign milestones and automation schedules at a glance.
+                </p>
+              </div>
+              <span className="inline-flex items-center gap-2 rounded-full bg-red-50 px-3 py-1 text-sm font-medium text-red-500">
+                <Calendar className="w-4 h-4" /> {monthLabel}
+              </span>
             </div>
 
             <div className="grid grid-cols-7 gap-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -118,11 +105,11 @@ export default function Dashboard() {
                     initial={{ opacity: 0, scale: 0.9 }}
                     animate={{ opacity: 1, scale: 1 }}
                     transition={{ delay: 0.45 + index * 0.02 }}
-                    className={`aspect-square rounded-lg border flex items-center justify-center text-sm font-medium ${
+                    className={`aspect-square rounded-xl border flex items-center justify-center text-sm font-medium ${
                       dateNumber
                         ? isToday
-                          ? 'bg-red-500 text-white border-red-500 shadow-lg shadow-red-500/20'
-                          : 'bg-white text-gray-700 border-gray-200'
+                          ? 'bg-red-500 text-white border-red-500 shadow-lg shadow-red-500/30'
+                          : 'bg-gray-50 text-gray-700 border-gray-200 hover:border-red-400 hover:bg-red-50 transition'
                         : 'border-transparent'
                     }`}
                   >
@@ -139,7 +126,7 @@ export default function Dashboard() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.6 }}
-            className="bg-white rounded-xl shadow-lg p-6"
+            className="bg-white rounded-2xl shadow-xl p-6 border border-gray-100"
           >
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-gray-800">Notifications</h2>
@@ -148,8 +135,8 @@ export default function Dashboard() {
             <div className="space-y-3">
               {recentActivity.map((activity, index) => (
                 <div key={index} className="flex items-start gap-3 pb-3 border-b border-gray-100 last:border-0 last:pb-0">
-                  <div className="bg-gray-100 p-2 rounded-lg">
-                    <activity.icon className="w-4 h-4 text-gray-600" />
+                  <div className="bg-red-50 text-red-500 p-2 rounded-lg">
+                    <activity.icon className="w-4 h-4" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-gray-800 font-medium">{activity.action}</p>
