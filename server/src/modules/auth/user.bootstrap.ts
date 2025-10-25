@@ -3,6 +3,7 @@ import { prisma } from './prisma.client.js';
 import { getFirebaseAdmin } from './firebase.service.js';
 import { DEFAULT_ROLE, USER_ROLES, type UserRole } from './permissions.js';
 import { normalizeEmail } from './email.utils.js';
+import { ensureNormalizedEmail, findUserByEmailInsensitive } from './user.repository.js';
 import {
   getSeedUsers,
   getImmutableAssignments,
@@ -21,10 +22,18 @@ const isRole = (role: string): role is UserRole => USER_ROLES.includes(role as U
 const ensureDatabaseUser = async (seed: SeedUserDefinition) => {
   const role = isRole(seed.role) ? seed.role : DEFAULT_ROLE;
   const normalizedEmail = normalizeEmail(seed.email);
-  await prisma.user.upsert({
-    where: { email: normalizedEmail },
-    update: { role },
-    create: { email: normalizedEmail, role },
+  const existing = await findUserByEmailInsensitive(seed.email);
+  if (existing) {
+    const target = await ensureNormalizedEmail(existing, normalizedEmail);
+    await prisma.user.update({
+      where: { id: target.id },
+      data: { role },
+    });
+    return;
+  }
+
+  await prisma.user.create({
+    data: { email: normalizedEmail, role },
   });
 };
 
