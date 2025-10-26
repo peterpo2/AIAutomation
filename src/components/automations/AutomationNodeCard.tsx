@@ -1,7 +1,7 @@
 import { memo, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Handle, NodeProps, Position } from 'reactflow';
-import { Link2 } from 'lucide-react';
+import { Link2, Loader2, Play } from 'lucide-react';
 
 export interface AutomationNodeData {
   title: string;
@@ -10,29 +10,56 @@ export interface AutomationNodeData {
   statusLabel: string;
   connected: boolean;
   onOpen: (id: string) => void;
+  onExecute?: (id: string) => void;
+  canExecute?: boolean;
+  executionStatus?: 'idle' | 'running' | 'success' | 'error';
+  executionMessage?: string | null;
 }
 
-const statusStyles: Record<AutomationNodeData['status'], { label: string; dot: string; chip: string }> = {
+const statusStyles: Record<
+  AutomationNodeData['status'],
+  { label: string; dot: string; chip: string; ring: string; button: string }
+> = {
   operational: {
     label: 'Operational',
     dot: 'bg-emerald-400',
     chip: 'bg-emerald-500/10 text-emerald-200 border border-emerald-500/30',
+    ring: 'ring-2 ring-emerald-500/40',
+    button:
+      'bg-emerald-500/15 text-emerald-100 hover:bg-emerald-500/25 focus-visible:ring-emerald-400/60',
   },
   'under-watch': {
     label: 'Under Watch',
     dot: 'bg-amber-400',
     chip: 'bg-amber-500/10 text-amber-200 border border-amber-500/30',
+    ring: 'ring-2 ring-amber-500/40',
+    button:
+      'bg-amber-500/15 text-amber-100 hover:bg-amber-500/25 focus-visible:ring-amber-400/60',
   },
   offline: {
     label: 'Offline',
     dot: 'bg-rose-400',
     chip: 'bg-rose-500/10 text-rose-200 border border-rose-500/30',
+    ring: 'ring-2 ring-rose-500/40',
+    button: 'bg-rose-500/15 text-rose-100 hover:bg-rose-500/25 focus-visible:ring-rose-400/60',
   },
+};
+
+const executionMessageStyles: Record<NonNullable<AutomationNodeData['executionStatus']>, string> = {
+  idle: 'text-slate-400',
+  running: 'text-amber-200',
+  success: 'text-emerald-200',
+  error: 'text-rose-200',
 };
 
 function AutomationNodeCardComponent({ id, data, selected }: NodeProps<AutomationNodeData>) {
   const statusStyle = statusStyles[data.status] ?? statusStyles.operational;
   const connectionColor = data.connected ? 'bg-emerald-400 shadow-emerald-400/60' : 'bg-slate-600 shadow-slate-600/40';
+  const executionStatus = data.executionStatus ?? 'idle';
+  const executionMessage = data.executionMessage;
+  const executionMessageClass = executionMessageStyles[executionStatus];
+  const isExecuting = executionStatus === 'running';
+  const canExecute = Boolean(data.onExecute) && (data.canExecute ?? true);
 
   const displayDescription = useMemo(() => {
     if (!data.shortDescription) return 'No description provided yet.';
@@ -49,7 +76,9 @@ function AutomationNodeCardComponent({ id, data, selected }: NodeProps<Automatio
       <button
         type="button"
         onClick={() => data.onOpen(id)}
-        className="group relative w-[280px] rounded-3xl border border-slate-800/80 bg-slate-900/70 p-6 text-left shadow-xl shadow-black/40 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/70"
+        className={`group relative w-[280px] rounded-3xl border border-slate-800/80 bg-slate-900/70 p-6 text-left shadow-xl shadow-black/40 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/70 ${
+          selected ? statusStyle.ring : ''
+        }`}
       >
         <motion.div
           layout
@@ -87,6 +116,31 @@ function AutomationNodeCardComponent({ id, data, selected }: NodeProps<Automatio
               View details
               <Link2 className="h-3.5 w-3.5" />
             </span>
+          </div>
+
+          <div className="mt-4 flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                if (!data.onExecute || !canExecute || isExecuting) return;
+                data.onExecute(id);
+              }}
+              className={`inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold uppercase tracking-wide transition focus:outline-none focus-visible:ring-2 ${
+                statusStyle.button
+              } ${
+                !canExecute || isExecuting
+                  ? 'pointer-events-none opacity-60'
+                  : 'shadow-lg shadow-black/20'
+              }`}
+            >
+              {isExecuting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+              Execute workflow
+            </button>
+
+            {executionMessage ? (
+              <p className={`text-xs font-medium ${executionMessageClass}`}>{executionMessage}</p>
+            ) : null}
           </div>
         </motion.div>
       </button>
