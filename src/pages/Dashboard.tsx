@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Bell, Calendar, FileText, Video } from 'lucide-react';
+import { Bell, Calendar, FileText, Users2, Video } from 'lucide-react';
 
 export default function Dashboard() {
   const today = new Date();
@@ -114,6 +115,18 @@ export default function Dashboard() {
               </div>
             </div>
           ))}
+        </div>
+        <div className="mt-5 rounded-xl bg-gray-50/60 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Quick links</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Link
+              to="/clients"
+              className="inline-flex items-center gap-2 rounded-lg border border-transparent bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+            >
+              <Users2 className="h-4 w-4" />
+              Manage clients
+            </Link>
+          </div>
         </div>
       </motion.div>
     </div>
