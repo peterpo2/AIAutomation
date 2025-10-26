@@ -4,6 +4,7 @@
 # Backend (Express + TypeScript)
 # Database (PostgreSQL + Prisma)
 # Queue (Redis + BullMQ)
+# n8n (Automation Orchestrator)
 # ===============================
 
 version: "3.8"
@@ -20,7 +21,6 @@ services:
       args:
         VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
         VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
-        # Environment variables passed to Vite during build
         VITE_FIREBASE_API_KEY: ${VITE_FIREBASE_API_KEY}
         VITE_FIREBASE_AUTH_DOMAIN: ${VITE_FIREBASE_AUTH_DOMAIN}
         VITE_FIREBASE_PROJECT_ID: ${VITE_FIREBASE_PROJECT_ID}
@@ -54,11 +54,13 @@ services:
       PORT: ${PORT:-8080}
       NODE_ENV: production
       CORS_WHITELIST: ${CORS_WHITELIST:-http://localhost}
+      N8N_BASE_URL: ${N8N_BASE_URL}
     ports:
       - "${PORT:-8080}:${PORT:-8080}"
     depends_on:
       - db
       - redis
+      - n8n
 
   # ------------------------------
   # DATABASE (PostgreSQL)
@@ -84,8 +86,28 @@ services:
     ports:
       - "6379:6379"
 
+  # ------------------------------
+  # n8n (Automation Engine)
+  # ------------------------------
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    restart: unless-stopped
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=${N8N_BASIC_AUTH_ACTIVE}
+      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - GENERIC_TIMEZONE=Europe/Sofia
+    ports:
+      - "5678:5678"
+    volumes:
+      - ./n8n_data:/home/node/.n8n
+
 # ------------------------------
 # VOLUMES
 # ------------------------------
 volumes:
   postgres_data:
+  n8n_data:
