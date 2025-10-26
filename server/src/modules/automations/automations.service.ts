@@ -1,6 +1,18 @@
 import OpenAI from 'openai';
 
-export interface AutomationNode {
+export class AutomationError extends Error {
+  readonly status: number;
+  readonly details?: unknown;
+
+  constructor(message: string, status = 500, details?: unknown) {
+    super(message);
+    this.name = 'AutomationError';
+    this.status = status;
+    this.details = details;
+  }
+}
+
+export interface AutomationNodeDefinition {
   code: string;
   step: string;
   title: string;
@@ -12,9 +24,31 @@ export interface AutomationNode {
   sequence: number;
   dependencies: string[];
   deliverables: string[];
+  webhookPath: string;
 }
 
-const automationNodes: AutomationNode[] = [
+export interface AutomationNodeView extends Omit<AutomationNodeDefinition, 'webhookPath'> {
+  webhookPath: string;
+  webhookUrl: string | null;
+  connected: boolean;
+}
+
+export interface AutomationRunResult {
+  code: string;
+  ok: boolean;
+  httpStatus: number | null;
+  statusText: string | null;
+  webhookUrl: string | null;
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  requestPayload: unknown;
+  responseBody: unknown;
+  responseHeaders: Record<string, string>;
+  error?: string;
+}
+
+const automationNodes: AutomationNodeDefinition[] = [
   {
     code: 'CCC',
     step: 'Content Calendar Creation',
@@ -27,6 +61,7 @@ const automationNodes: AutomationNode[] = [
     sequence: 1,
     dependencies: [],
     deliverables: ['Campaign calendar', 'Concept moodboard', 'Copy angle matrix'],
+    webhookPath: '/workflow/ccc',
   },
   {
     code: 'VPE',
@@ -40,6 +75,7 @@ const automationNodes: AutomationNode[] = [
     sequence: 2,
     dependencies: ['CCC'],
     deliverables: ['Edited video masters', 'Auto-caption files', 'Thumbnail concepts'],
+    webhookPath: '/workflow/vpe',
   },
   {
     code: 'USP',
@@ -53,6 +89,7 @@ const automationNodes: AutomationNode[] = [
     sequence: 3,
     dependencies: ['VPE'],
     deliverables: ['Posting matrix', 'Audience overlap report'],
+    webhookPath: '/workflow/usp',
   },
   {
     code: 'UMS',
@@ -66,6 +103,7 @@ const automationNodes: AutomationNode[] = [
     sequence: 4,
     dependencies: ['USP'],
     deliverables: ['Upload-ready bundles', 'Metadata QA checklist'],
+    webhookPath: '/workflow/ums',
   },
   {
     code: 'AL',
@@ -79,6 +117,7 @@ const automationNodes: AutomationNode[] = [
     sequence: 5,
     dependencies: ['UMS'],
     deliverables: ['Active OAuth tokens', 'Security audit logs'],
+    webhookPath: '/workflow/al',
   },
   {
     code: 'AR',
@@ -92,6 +131,7 @@ const automationNodes: AutomationNode[] = [
     sequence: 6,
     dependencies: ['AL'],
     deliverables: ['Rule manifests', 'Escalation briefs'],
+    webhookPath: '/workflow/ar',
   },
   {
     code: 'WAU',
@@ -105,6 +145,7 @@ const automationNodes: AutomationNode[] = [
     sequence: 7,
     dependencies: ['AR'],
     deliverables: ['Deployment receipts', 'Fallback queue status'],
+    webhookPath: '/workflow/wau',
   },
   {
     code: 'MAO',
@@ -118,8 +159,66 @@ const automationNodes: AutomationNode[] = [
     sequence: 8,
     dependencies: ['WAU'],
     deliverables: ['Performance dashboard', 'Optimisation brief'],
+    webhookPath: '/workflow/mao',
   },
 ];
+
+const resolveN8nBaseUrl = (): string | null => {
+  const raw = process.env.N8N_BASE_URL;
+  if (!raw || raw.trim().length === 0) {
+    return null;
+  }
+
+  const normalized = raw.trim().endsWith('/') ? raw.trim() : `${raw.trim()}/`;
+  return normalized;
+};
+
+const resolveWebhookUrl = (path: string): string | null => {
+  const base = resolveN8nBaseUrl();
+  if (!base) {
+    return null;
+  }
+
+  try {
+    const normalizedPath = path.startsWith('/') ? path.slice(1) : path;
+    return new URL(normalizedPath, base).toString();
+  } catch (error) {
+    console.error('Failed to resolve n8n webhook URL', error);
+    return null;
+  }
+};
+
+const resolveBasicAuthHeader = (): string | null => {
+  const active = `${process.env.N8N_BASIC_AUTH_ACTIVE ?? ''}`.toLowerCase() === 'true';
+  if (!active) {
+    return null;
+  }
+
+  const user = process.env.N8N_BASIC_AUTH_USER;
+  const password = process.env.N8N_BASIC_AUTH_PASSWORD;
+
+  if (!user || !password) {
+    console.warn('n8n basic auth is marked active, but credentials are missing. Skipping Authorization header.');
+    return null;
+  }
+
+  const token = Buffer.from(`${user}:${password}`).toString('base64');
+  return `Basic ${token}`;
+};
+
+const serializePayload = (payload: unknown): string | undefined => {
+  if (payload === undefined) {
+    return undefined;
+  }
+
+  try {
+    return JSON.stringify(payload);
+  } catch (error) {
+    throw new AutomationError('Unable to serialise the provided payload for the n8n webhook.', 400, {
+      cause: error instanceof Error ? error.message : 'Unknown serialization error',
+    });
+  }
+};
 
 const getOpenAIClient = () => {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -130,8 +229,107 @@ const getOpenAIClient = () => {
 };
 
 export const automationsService = {
-  listNodes(): AutomationNode[] {
-    return automationNodes;
+  listNodes(): AutomationNodeView[] {
+    return automationNodes.map((node) => {
+      const webhookUrl = resolveWebhookUrl(node.webhookPath);
+      return {
+        ...node,
+        webhookUrl,
+        connected: Boolean(webhookUrl),
+      };
+    });
+  },
+
+  async runNode({ code, payload }: { code: string; payload?: unknown }): Promise<AutomationRunResult> {
+    const normalizedCode = code.toUpperCase();
+    const definition = automationNodes.find((node) => node.code === normalizedCode);
+
+    if (!definition) {
+      throw new AutomationError(`Automation node ${normalizedCode} was not found.`, 404);
+    }
+
+    const webhookUrl = resolveWebhookUrl(definition.webhookPath);
+
+    if (!webhookUrl) {
+      throw new AutomationError(
+        'n8n base URL is not configured. Set N8N_BASE_URL so SmartOps can reach the workflow webhooks.',
+        503,
+      );
+    }
+
+    const body = serializePayload(payload);
+    const startedAt = new Date();
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+
+    const authHeader = resolveBasicAuthHeader();
+    if (authHeader) {
+      headers.Authorization = authHeader;
+    }
+
+    let response: Response | null = null;
+
+    try {
+      response = await fetch(webhookUrl, {
+        method: 'POST',
+        headers,
+        body,
+      });
+    } catch (error) {
+      const finishedAt = new Date();
+      return {
+        code: definition.code,
+        ok: false,
+        httpStatus: null,
+        statusText: 'FETCH_ERROR',
+        webhookUrl,
+        startedAt: startedAt.toISOString(),
+        finishedAt: finishedAt.toISOString(),
+        durationMs: finishedAt.getTime() - startedAt.getTime(),
+        requestPayload: payload ?? null,
+        responseBody: null,
+        responseHeaders: {},
+        error: error instanceof Error ? error.message : 'Unknown error contacting n8n webhook.',
+      };
+    }
+
+    const finishedAt = new Date();
+
+    const headersRecord: Record<string, string> = {};
+    response.headers.forEach((value, key) => {
+      headersRecord[key] = value;
+    });
+
+    let responseBody: unknown = null;
+    const contentType = response.headers.get('content-type') ?? '';
+
+    if (contentType.includes('application/json')) {
+      responseBody = await response.json().catch(() => null);
+    } else {
+      const text = await response.text().catch(() => null);
+      responseBody = text && text.length > 0 ? text : null;
+    }
+
+    const result: AutomationRunResult = {
+      code: definition.code,
+      ok: response.ok,
+      httpStatus: response.status,
+      statusText: response.statusText || null,
+      webhookUrl,
+      startedAt: startedAt.toISOString(),
+      finishedAt: finishedAt.toISOString(),
+      durationMs: finishedAt.getTime() - startedAt.getTime(),
+      requestPayload: payload ?? null,
+      responseBody,
+      responseHeaders: headersRecord,
+    };
+
+    if (!response.ok) {
+      result.error = `n8n responded with status ${response.status}`;
+    }
+
+    return result;
   },
 
   async generateInsights({ focus }: { focus?: string }) {

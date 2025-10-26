@@ -12,4 +12,29 @@ export interface AutomationNode {
   sequence: number;
   dependencies: string[];
   deliverables: string[];
+  webhookPath: string;
+  webhookUrl: string | null;
+  connected: boolean;
+}
+
+export interface AutomationRunResult {
+  code: string;
+  ok: boolean;
+  httpStatus: number | null;
+  statusText: string | null;
+  webhookUrl: string | null;
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  requestPayload: unknown;
+  responseBody: unknown;
+  responseHeaders: Record<string, string>;
+  error?: string;
+}
+
+export type AutomationRunStatus = 'idle' | 'running' | 'success' | 'error';
+
+export interface AutomationRunState {
+  status: AutomationRunStatus;
+  result?: AutomationRunResult;
 }
