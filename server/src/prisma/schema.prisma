@@ -14,6 +14,7 @@ model User {
   role       String
   createdAt  DateTime @default(now()) @map("created_at")
   videos     Video[]
+  automationLayouts AutomationLayout[]
 }
 
 model Video {
@@ -45,4 +46,19 @@ model JobsLog {
   status     String
   executedAt DateTime @default(now()) @map("executed_at")
   @@map("jobs_log")
+}
+
+model AutomationLayout {
+  id             String   @id @default(uuid())
+  userId         String   @map("user_id")
+  automationCode String   @map("automation_code")
+  positionX      Float    @map("position_x")
+  positionY      Float    @map("position_y")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, automationCode], map: "automation_layout_user_code_key")
+  @@map("automation_layouts")
 }

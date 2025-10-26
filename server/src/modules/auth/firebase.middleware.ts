@@ -12,6 +12,7 @@ import {
 
 export interface AuthenticatedRequest extends Request {
   user?: {
+    id: string;
     uid: string;
     email?: string;
     role?: string;
@@ -81,7 +82,7 @@ export const firebaseAuthMiddleware = async (
 
     const role = USER_ROLES.includes(user.role as UserRole) ? (user.role as UserRole) : DEFAULT_ROLE;
 
-    req.user = { uid: decoded.uid, email: normalizedEmail, role };
+    req.user = { id: user.id, uid: decoded.uid, email: normalizedEmail, role };
     return next();
   } catch (error) {
     console.error('Auth error', error);

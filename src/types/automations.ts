@@ -15,6 +15,10 @@ export interface AutomationNode {
   webhookPath: string;
   webhookUrl: string | null;
   connected: boolean;
+  position?: { x: number; y: number } | null;
+  positionX?: number | null;
+  positionY?: number | null;
+  layout?: { x: number; y: number } | null;
 }
 
 export interface AutomationRunResult {

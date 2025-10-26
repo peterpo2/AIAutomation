@@ -318,7 +318,7 @@ export default function AutomationsFlow() {
 
       try {
         const token = await user.getIdToken();
-        await apiFetch(`/automations/${id}/position`, {
+        const response = await apiFetch(`/automations/${id}/position`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -326,6 +326,12 @@ export default function AutomationsFlow() {
           },
           body: JSON.stringify({ x: position.x, y: position.y }),
         });
+
+        if (!response.ok) {
+          const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+          throw new Error(payload?.message ?? `Failed with status ${response.status}`);
+        }
+
         return true;
       } catch (err) {
         console.error('Failed to persist automation node position', err);

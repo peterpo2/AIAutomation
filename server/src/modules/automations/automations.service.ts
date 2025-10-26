@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { prisma } from '../auth/prisma.client.js';
 
 export class AutomationError extends Error {
   readonly status: number;
@@ -31,6 +32,10 @@ export interface AutomationNodeView extends Omit<AutomationNodeDefinition, 'webh
   webhookPath: string;
   webhookUrl: string | null;
   connected: boolean;
+  position?: { x: number; y: number } | null;
+  positionX?: number | null;
+  positionY?: number | null;
+  layout?: { x: number; y: number } | null;
 }
 
 export interface AutomationRunResult {
@@ -229,15 +234,80 @@ const getOpenAIClient = () => {
 };
 
 export const automationsService = {
-  listNodes(): AutomationNodeView[] {
+  async listNodes(userId?: string | null): Promise<AutomationNodeView[]> {
+    let layoutMap = new Map<string, { x: number; y: number }>();
+
+    if (userId) {
+      try {
+        const layouts = await prisma.automationLayout.findMany({
+          where: { userId },
+        });
+        layoutMap = new Map(
+          layouts.map((layout) => [
+            layout.automationCode,
+            { x: layout.positionX, y: layout.positionY },
+          ]),
+        );
+      } catch (error) {
+        console.error('Failed to load automation layouts for user', userId, error);
+      }
+    }
+
     return automationNodes.map((node) => {
       const webhookUrl = resolveWebhookUrl(node.webhookPath);
+      const savedPosition = layoutMap.get(node.code) ?? null;
+
       return {
         ...node,
         webhookUrl,
         connected: Boolean(webhookUrl),
-      };
+        position: savedPosition,
+        positionX: savedPosition?.x ?? null,
+        positionY: savedPosition?.y ?? null,
+        layout: savedPosition,
+      } satisfies AutomationNodeView;
     });
+  },
+
+  async saveNodePosition({
+    userId,
+    code,
+    position,
+  }: {
+    userId: string;
+    code: string;
+    position: { x: number; y: number };
+  }): Promise<void> {
+    const normalizedCode = code.toUpperCase();
+    const node = automationNodes.find((candidate) => candidate.code === normalizedCode);
+
+    if (!node) {
+      throw new AutomationError(`Automation node ${normalizedCode} was not found.`, 404);
+    }
+
+    try {
+      await prisma.automationLayout.upsert({
+        where: {
+          userId_automationCode: {
+            userId,
+            automationCode: normalizedCode,
+          },
+        },
+        update: {
+          positionX: position.x,
+          positionY: position.y,
+        },
+        create: {
+          userId,
+          automationCode: normalizedCode,
+          positionX: position.x,
+          positionY: position.y,
+        },
+      });
+    } catch (error) {
+      console.error('Failed to persist automation layout for user', userId, normalizedCode, error);
+      throw new AutomationError('Unable to save automation layout.', 500);
+    }
   },
 
   async runNode({ code, payload }: { code: string; payload?: unknown }): Promise<AutomationRunResult> {
