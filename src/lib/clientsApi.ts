@@ -74,26 +74,42 @@ const fallbackCreateClient = (payload: ClientPayload): Client => {
 };
 
 export async function fetchClients(): Promise<Client[]> {
+  const fallbackClients = () => sortClientsByUpdatedAt(loadClients());
+
   if (!supabase) {
-    return sortClientsByUpdatedAt(loadClients());
+    return fallbackClients();
   }
 
-  const { data, error } = await supabase
-    .from('clients')
-    .select(
-      'id,name,start_date,notes,tiktok_handle,tiktok_email,tiktok_password,created_at,updated_at',
-    )
-    .order('updated_at', { ascending: false });
+  try {
+    const { data, error } = await supabase
+      .from('clients')
+      .select(
+        'id,name,start_date,notes,tiktok_handle,tiktok_email,tiktok_password,created_at,updated_at',
+      )
+      .order('updated_at', { ascending: false });
 
-  if (error) {
-    throw new Error(`Failed to fetch clients: ${error.message}`);
+    if (error) {
+      throw error;
+    }
+
+    const clients = Array.isArray(data)
+      ? data.map((row) => toClient(row as SupabaseClientRow))
+      : [];
+
+    return cacheClients(clients);
+  } catch (error) {
+    const cachedClients = fallbackClients();
+    if (cachedClients.length > 0) {
+      if (import.meta.env.DEV) {
+        console.warn('Falling back to cached clients due to fetch error:', error);
+      }
+      return cachedClients;
+    }
+
+    throw new Error(
+      `Failed to fetch clients: ${error instanceof Error ? error.message : 'Unknown error'}`,
+    );
   }
-
-  const clients = Array.isArray(data)
-    ? data.map((row) => toClient(row as SupabaseClientRow))
-    : [];
-
-  return cacheClients(clients);
 }
 
 export async function createClient(payload: ClientPayload): Promise<Client> {
@@ -107,34 +123,41 @@ export async function createClient(payload: ClientPayload): Promise<Client> {
 
   const normalized = normalizePayload(payload);
 
-  const { data, error } = await supabase
-    .from('clients')
-    .insert({
-      name: normalized.name,
-      start_date: normalized.startDate || null,
-      notes: normalized.notes || null,
-      tiktok_handle: normalized.tiktokHandle || null,
-      tiktok_email: normalized.tiktokEmail || null,
-      tiktok_password: normalized.tiktokPassword || null,
-    })
-    .select(
-      'id,name,start_date,notes,tiktok_handle,tiktok_email,tiktok_password,created_at,updated_at',
-    )
-    .single();
+  try {
+    const { data, error } = await supabase
+      .from('clients')
+      .insert({
+        name: normalized.name,
+        start_date: normalized.startDate || null,
+        notes: normalized.notes || null,
+        tiktok_handle: normalized.tiktokHandle || null,
+        tiktok_email: normalized.tiktokEmail || null,
+        tiktok_password: normalized.tiktokPassword || null,
+      })
+      .select(
+        'id,name,start_date,notes,tiktok_handle,tiktok_email,tiktok_password,created_at,updated_at',
+      )
+      .single();
 
-  if (error) {
-    throw new Error(`Failed to create client: ${error.message}`);
+    if (error) {
+      throw error;
+    }
+
+    if (!data) {
+      throw new Error('Failed to create client: missing response payload.');
+    }
+
+    const client = toClient(data as SupabaseClientRow);
+
+    cacheClients([client, ...loadClients().filter((existing) => existing.id !== client.id)]);
+
+    return client;
+  } catch (error) {
+    if (import.meta.env.DEV) {
+      console.warn('Falling back to local client creation due to error:', error);
+    }
+    return fallbackCreateClient(payload);
   }
-
-  if (!data) {
-    throw new Error('Failed to create client: missing response payload.');
-  }
-
-  const client = toClient(data as SupabaseClientRow);
-
-  cacheClients([client, ...loadClients().filter((existing) => existing.id !== client.id)]);
-
-  return client;
 }
 
 const fallbackUpdateClient = (id: string, payload: ClientPayload): Client => {
@@ -175,36 +198,43 @@ export async function updateClient(id: string, payload: ClientPayload): Promise<
 
   const normalized = normalizePayload(payload);
 
-  const { data, error } = await supabase
-    .from('clients')
-    .update({
-      name: normalized.name,
-      start_date: normalized.startDate || null,
-      notes: normalized.notes || null,
-      tiktok_handle: normalized.tiktokHandle || null,
-      tiktok_email: normalized.tiktokEmail || null,
-      tiktok_password: normalized.tiktokPassword || null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', id)
-    .select(
-      'id,name,start_date,notes,tiktok_handle,tiktok_email,tiktok_password,created_at,updated_at',
-    )
-    .single();
+  try {
+    const { data, error } = await supabase
+      .from('clients')
+      .update({
+        name: normalized.name,
+        start_date: normalized.startDate || null,
+        notes: normalized.notes || null,
+        tiktok_handle: normalized.tiktokHandle || null,
+        tiktok_email: normalized.tiktokEmail || null,
+        tiktok_password: normalized.tiktokPassword || null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select(
+        'id,name,start_date,notes,tiktok_handle,tiktok_email,tiktok_password,created_at,updated_at',
+      )
+      .single();
 
-  if (error) {
-    throw new Error(`Failed to update client: ${error.message}`);
+    if (error) {
+      throw error;
+    }
+
+    if (!data) {
+      throw new Error('Failed to update client: missing response payload.');
+    }
+
+    const client = toClient(data as SupabaseClientRow);
+
+    cacheClients([client, ...loadClients().filter((existing) => existing.id !== id)]);
+
+    return client;
+  } catch (error) {
+    if (import.meta.env.DEV) {
+      console.warn('Falling back to local client update due to error:', error);
+    }
+    return fallbackUpdateClient(id, payload);
   }
-
-  if (!data) {
-    throw new Error('Failed to update client: missing response payload.');
-  }
-
-  const client = toClient(data as SupabaseClientRow);
-
-  cacheClients([client, ...loadClients().filter((existing) => existing.id !== id)]);
-
-  return client;
 }
 
 const fallbackDeleteClient = (id: string) => {
@@ -218,11 +248,18 @@ export async function deleteClient(id: string): Promise<void> {
     return;
   }
 
-  const { error } = await supabase.from('clients').delete().eq('id', id);
+  try {
+    const { error } = await supabase.from('clients').delete().eq('id', id);
 
-  if (error) {
-    throw new Error(`Failed to delete client: ${error.message}`);
+    if (error) {
+      throw error;
+    }
+
+    cacheClients(loadClients().filter((client) => client.id !== id));
+  } catch (error) {
+    if (import.meta.env.DEV) {
+      console.warn('Falling back to local client deletion due to error:', error);
+    }
+    fallbackDeleteClient(id);
   }
-
-  cacheClients(loadClients().filter((client) => client.id !== id));
 }
