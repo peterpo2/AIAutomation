@@ -205,11 +205,11 @@ export default function Clients() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 text-gray-900 dark:text-gray-100">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Clients</h1>
-          <p className="text-gray-600">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Clients</h1>
+          <p className="text-gray-600 dark:text-gray-300">
             Track onboarding details, TikTok credentials, and account connection status for every
             partner.
           </p>
@@ -220,7 +220,7 @@ export default function Clients() {
             resetForm();
             setShowForm(true);
           }}
-          className="inline-flex items-center gap-2 rounded-lg bg-red-500 px-4 py-2 font-semibold text-white shadow-sm transition-colors hover:bg-red-600"
+          className="inline-flex items-center gap-2 rounded-lg bg-red-500 px-4 py-2 font-semibold text-white shadow-sm transition-colors hover:bg-red-600 dark:bg-red-500 dark:hover:bg-red-400"
         >
           <Plus className="h-5 w-5" />
           Add client
@@ -228,74 +228,74 @@ export default function Clients() {
       </header>
 
       <section className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900/70">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-500">Total clients</p>
-              <p className="mt-2 text-2xl font-semibold text-gray-900">{totalClients}</p>
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total clients</p>
+              <p className="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">{totalClients}</p>
             </div>
-            <User2 className="h-10 w-10 text-red-500" />
+            <User2 className="h-10 w-10 text-red-500 dark:text-red-300" />
           </div>
         </div>
 
-        <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900/70">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-500">Earliest partnership</p>
-              <p className="mt-2 text-lg font-semibold text-gray-900">
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Earliest partnership</p>
+              <p className="mt-2 text-lg font-semibold text-gray-900 dark:text-white">
                 {earliestClient ? formatClientDate(earliestClient.startDate) : '—'}
               </p>
               {earliestClient ? (
-                <p className="text-sm text-gray-500">{earliestClient.name}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{earliestClient.name}</p>
               ) : (
-                <p className="text-sm text-gray-400">Add a start date to see history.</p>
+                <p className="text-sm text-gray-400 dark:text-gray-500">Add a start date to see history.</p>
               )}
             </div>
-            <Calendar className="h-10 w-10 text-red-500" />
+            <Calendar className="h-10 w-10 text-red-500 dark:text-red-300" />
           </div>
         </div>
 
-        <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900/70">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-500">Last updated</p>
-              <p className="mt-2 text-lg font-semibold text-gray-900">
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Last updated</p>
+              <p className="mt-2 text-lg font-semibold text-gray-900 dark:text-white">
                 {latestUpdate ? formatClientDate(latestUpdate.updatedAt) : '—'}
               </p>
               {latestUpdate ? (
-                <p className="text-sm text-gray-500">{latestUpdate.name}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{latestUpdate.name}</p>
               ) : (
-                <p className="text-sm text-gray-400">Keep client records up to date.</p>
+                <p className="text-sm text-gray-400 dark:text-gray-500">Keep client records up to date.</p>
               )}
             </div>
-            <NotebookPen className="h-10 w-10 text-red-500" />
+            <NotebookPen className="h-10 w-10 text-red-500 dark:text-red-300" />
           </div>
         </div>
       </section>
 
       {errorMessage ? (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-400/40 dark:bg-red-500/10 dark:text-red-200">
           {errorMessage}
         </div>
       ) : null}
 
-      <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-4 border-b border-gray-200 pb-6 sm:flex-row sm:items-center sm:justify-between">
+      <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900/70">
+        <div className="flex flex-col gap-4 border-b border-gray-200 pb-6 sm:flex-row sm:items-center sm:justify-between dark:border-gray-800">
           <div className="relative w-full sm:max-w-xs">
-            <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
             <input
               type="search"
               value={searchTerm}
               onChange={(event) => setSearchTerm(event.target.value)}
               placeholder="Search clients"
-              className="w-full rounded-lg border border-gray-200 bg-gray-50 py-2 pl-10 pr-3 text-sm text-gray-700 placeholder:text-gray-400 focus:border-red-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-100"
+              className="w-full rounded-lg border border-gray-200 bg-gray-50 py-2 pl-10 pr-3 text-sm text-gray-700 placeholder:text-gray-400 focus:border-red-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-red-100 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:placeholder:text-gray-500 dark:focus:border-red-400 dark:focus:bg-gray-900 dark:focus:ring-red-400/40"
               disabled={loading}
             />
           </div>
 
           <button
             type="button"
-            className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-600 transition-colors hover:border-red-300 hover:bg-red-100"
+            className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-600 transition-colors hover:border-red-300 hover:bg-red-100 dark:border-red-400/40 dark:bg-red-500/10 dark:text-red-200 dark:hover:border-red-400/60 dark:hover:bg-red-500/20"
           >
             <Link2 className="h-4 w-4" />
             Connect TikTok accounts
@@ -304,14 +304,14 @@ export default function Clients() {
 
         <div className="mt-6 space-y-4">
           {loading ? (
-            <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-gray-300 bg-gray-50 py-16 text-center text-sm text-gray-500">
+            <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-gray-300 bg-gray-50 py-16 text-center text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-400">
               Loading clients…
             </div>
           ) : filteredClients.length === 0 ? (
-            <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-gray-300 bg-gray-50 py-16 text-center">
-              <User2 className="h-12 w-12 text-gray-300" />
-              <h3 className="mt-4 text-lg font-semibold text-gray-700">No clients found</h3>
-              <p className="mt-2 max-w-sm text-sm text-gray-500">
+            <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-gray-300 bg-gray-50 py-16 text-center dark:border-gray-700 dark:bg-gray-900/40">
+              <User2 className="h-12 w-12 text-gray-300 dark:text-gray-600" />
+              <h3 className="mt-4 text-lg font-semibold text-gray-700 dark:text-gray-200">No clients found</h3>
+              <p className="mt-2 max-w-sm text-sm text-gray-500 dark:text-gray-400">
                 Start building relationships by adding your first client. You can manage notes,
                 track onboarding dates, and store TikTok credentials securely.
               </p>
@@ -321,7 +321,7 @@ export default function Clients() {
                   resetForm();
                   setShowForm(true);
                 }}
-                className="mt-4 inline-flex items-center gap-2 rounded-lg bg-red-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-red-600"
+                className="mt-4 inline-flex items-center gap-2 rounded-lg bg-red-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-red-600 dark:bg-red-500 dark:hover:bg-red-400"
                 disabled={isSaving}
               >
                 <Plus className="h-4 w-4" />
@@ -333,11 +333,14 @@ export default function Clients() {
               {filteredClients.map((client) => {
                 const isDeleting = deletingClientId === client.id;
                 return (
-                  <article key={client.id} className="rounded-lg border border-gray-200 p-4 shadow-sm transition hover:border-red-200">
+                  <article
+                    key={client.id}
+                    className="rounded-lg border border-gray-200 bg-white/70 p-4 shadow-sm transition hover:border-red-200 dark:border-gray-800 dark:bg-gray-900/60 dark:hover:border-red-400/60"
+                  >
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div>
-                        <h3 className="text-lg font-semibold text-gray-900">{client.name}</h3>
-                        <p className="mt-1 text-sm text-gray-500">
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{client.name}</h3>
+                        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                           Partner since {client.startDate ? formatClientDate(client.startDate) : '—'}
                         </p>
                       </div>
@@ -345,7 +348,7 @@ export default function Clients() {
                         <button
                           type="button"
                           onClick={() => startEditClient(client)}
-                          className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:border-red-200 hover:text-red-600"
+                          className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:border-red-200 hover:text-red-600 dark:border-gray-700 dark:text-gray-300 dark:hover:border-red-400/60 dark:hover:text-red-200"
                           disabled={isSaving || isDeleting}
                         >
                           <Edit2 className="h-4 w-4" />
@@ -354,7 +357,7 @@ export default function Clients() {
                         <button
                           type="button"
                           onClick={() => handleDeleteClient(client.id)}
-                          className="inline-flex items-center gap-2 rounded-lg border border-transparent bg-red-50 px-3 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-100"
+                          className="inline-flex items-center gap-2 rounded-lg border border-transparent bg-red-50 px-3 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-100 dark:bg-red-500/10 dark:text-red-200 dark:hover:bg-red-500/20"
                           disabled={isDeleting || isSaving}
                         >
                           <Trash2 className="h-4 w-4" />
@@ -364,41 +367,43 @@ export default function Clients() {
                     </div>
 
                     <dl className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                      <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                        <dt className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-gray-500">
+                      <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-900/40">
+                        <dt className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
                           <Calendar className="h-4 w-4" />
                           Start date
                         </dt>
-                        <dd className="mt-1 text-sm text-gray-800">
+                        <dd className="mt-1 text-sm text-gray-800 dark:text-gray-200">
                           {client.startDate ? formatClientDate(client.startDate) : 'Not provided'}
                         </dd>
                       </div>
 
-                      <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                        <dt className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-gray-500">
+                      <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-900/40">
+                        <dt className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
                           <Link2 className="h-4 w-4" />
                           TikTok handle
                         </dt>
-                        <dd className="mt-1 text-sm text-gray-800">{client.tiktokHandle || 'Not provided'}</dd>
+                        <dd className="mt-1 text-sm text-gray-800 dark:text-gray-200">
+                          {client.tiktokHandle || 'Not provided'}
+                        </dd>
                       </div>
 
-                      <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                        <dt className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-gray-500">
+                      <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-900/40">
+                        <dt className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
                           <KeyRound className="h-4 w-4" />
                           TikTok credentials
                         </dt>
-                        <dd className="mt-1 space-y-1 text-sm text-gray-800">
+                        <dd className="mt-1 space-y-1 text-sm text-gray-800 dark:text-gray-200">
                           <div>Email: {client.tiktokEmail || '—'}</div>
                           <div>Password: {client.tiktokPassword ? '••••••••' : '—'}</div>
                         </dd>
                       </div>
 
-                      <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 sm:col-span-2 lg:col-span-1">
-                        <dt className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-gray-500">
+                      <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 sm:col-span-2 lg:col-span-1 dark:border-gray-800 dark:bg-gray-900/40">
+                        <dt className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">
                           <NotebookPen className="h-4 w-4" />
                           Notes
                         </dt>
-                        <dd className="mt-1 text-sm text-gray-800 whitespace-pre-wrap">
+                        <dd className="mt-1 text-sm text-gray-800 whitespace-pre-wrap dark:text-gray-200">
                           {client.notes || 'Add notes about campaigns, KPIs, or deliverables.'}
                         </dd>
                       </div>
@@ -413,25 +418,25 @@ export default function Clients() {
 
       {showForm ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="relative w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl">
+          <div className="relative w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-900">
             <button
               type="button"
               onClick={handleCancel}
-              className="absolute right-4 top-4 rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+              className="absolute right-4 top-4 rounded-full p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:text-gray-500 dark:hover:bg-gray-800 dark:hover:text-gray-300"
             >
               <X className="h-5 w-5" />
             </button>
 
-            <h2 className="text-xl font-semibold text-gray-900">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
               {editingClientId ? 'Update client' : 'Add new client'}
             </h2>
-            <p className="mt-1 text-sm text-gray-500">
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
               Capture onboarding details, account credentials, and collaboration notes.
             </p>
 
             <form onSubmit={handleFormSubmit} className="mt-6 grid gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700" htmlFor="client-name">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300" htmlFor="client-name">
                   Client name
                 </label>
                 <input
@@ -441,14 +446,14 @@ export default function Clients() {
                   onChange={(event) => setFormValues((prev) => ({ ...prev, name: event.target.value }))}
                   placeholder="e.g. Kaufland"
                   required
-                  className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-100"
+                  className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-100 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:focus:border-red-400 dark:focus:ring-red-400/40"
                   disabled={isSaving}
                 />
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700" htmlFor="client-start-date">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300" htmlFor="client-start-date">
                     Start date
                   </label>
                   <input
@@ -458,12 +463,12 @@ export default function Clients() {
                     onChange={(event) =>
                       setFormValues((prev) => ({ ...prev, startDate: event.target.value }))
                     }
-                    className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-100"
+                    className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-100 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:focus:border-red-400 dark:focus:ring-red-400/40"
                     disabled={isSaving}
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700" htmlFor="client-tiktok-handle">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300" htmlFor="client-tiktok-handle">
                     TikTok handle
                   </label>
                   <input
@@ -474,7 +479,7 @@ export default function Clients() {
                       setFormValues((prev) => ({ ...prev, tiktokHandle: event.target.value }))
                     }
                     placeholder="@brand.tiktok"
-                    className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-100"
+                    className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-100 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:focus:border-red-400 dark:focus:ring-red-400/40"
                     disabled={isSaving}
                   />
                 </div>
@@ -482,7 +487,7 @@ export default function Clients() {
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700" htmlFor="client-tiktok-email">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300" htmlFor="client-tiktok-email">
                     TikTok email
                   </label>
                   <input
@@ -493,12 +498,12 @@ export default function Clients() {
                       setFormValues((prev) => ({ ...prev, tiktokEmail: event.target.value }))
                     }
                     placeholder="contact@brand.com"
-                    className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-100"
+                    className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-100 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:focus:border-red-400 dark:focus:ring-red-400/40"
                     disabled={isSaving}
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700" htmlFor="client-tiktok-password">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300" htmlFor="client-tiktok-password">
                     TikTok password
                   </label>
                   <input
@@ -509,14 +514,14 @@ export default function Clients() {
                       setFormValues((prev) => ({ ...prev, tiktokPassword: event.target.value }))
                     }
                     placeholder="Secure password"
-                    className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-100"
+                    className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-100 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:focus:border-red-400 dark:focus:ring-red-400/40"
                     disabled={isSaving}
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700" htmlFor="client-notes">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300" htmlFor="client-notes">
                   Notes
                 </label>
                 <textarea
@@ -525,7 +530,7 @@ export default function Clients() {
                   onChange={(event) => setFormValues((prev) => ({ ...prev, notes: event.target.value }))}
                   rows={4}
                   placeholder="Capture strategy notes, campaign KPIs, or platform access steps."
-                  className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-100"
+                  className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-100 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:focus:border-red-400 dark:focus:ring-red-400/40"
                   disabled={isSaving}
                 />
               </div>
@@ -534,7 +539,7 @@ export default function Clients() {
                 <button
                   type="button"
                   onClick={handleCancel}
-                  className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-700"
+                  className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-700 dark:border-gray-700 dark:text-gray-300 dark:hover:border-gray-600 dark:hover:text-gray-100"
                   disabled={isSaving}
                 >
                   <X className="h-4 w-4" />
@@ -542,7 +547,7 @@ export default function Clients() {
                 </button>
                 <button
                   type="submit"
-                  className="inline-flex items-center gap-2 rounded-lg bg-red-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-70"
+                  className="inline-flex items-center gap-2 rounded-lg bg-red-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-70 dark:bg-red-500 dark:hover:bg-red-400"
                   disabled={isSaving}
                 >
                   <Save className="h-4 w-4" />
