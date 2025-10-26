@@ -216,31 +216,35 @@ authRouter.post('/users', async (req: AuthenticatedRequest, res) => {
     return res.status(409).json({ message: 'A user with this email already exists.' });
   }
 
-  const firebaseAdmin = getFirebaseAdmin();
-  try {
-    const createPayload: {
-      email: string;
-      password: string;
-      emailVerified: true;
-      displayName?: string;
-    } = {
-      email: normalizedEmail,
-      password,
-      emailVerified: true,
-    };
+  const firebaseAdmin = getFirebaseAdmin({ allowUninitialized: true });
+  if (firebaseAdmin) {
+    try {
+      const createPayload: {
+        email: string;
+        password: string;
+        emailVerified: true;
+        displayName?: string;
+      } = {
+        email: normalizedEmail,
+        password,
+        emailVerified: true,
+      };
 
-    if (sanitizedDisplayName && sanitizedDisplayName.length > 0) {
-      createPayload.displayName = sanitizedDisplayName;
-    }
+      if (sanitizedDisplayName && sanitizedDisplayName.length > 0) {
+        createPayload.displayName = sanitizedDisplayName;
+      }
 
-    await firebaseAdmin.auth().createUser(createPayload);
-  } catch (error) {
-    const code = (error as { code?: string }).code;
-    if (code === 'auth/email-already-exists') {
-      return res.status(409).json({ message: 'A Firebase account with this email already exists.' });
+      await firebaseAdmin.auth().createUser(createPayload);
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      if (code === 'auth/email-already-exists') {
+        return res.status(409).json({ message: 'A Firebase account with this email already exists.' });
+      }
+      console.error('Failed to create Firebase user', error);
+      return res.status(500).json({ message: 'Unable to create user at this time.' });
     }
-    console.error('Failed to create Firebase user', error);
-    return res.status(500).json({ message: 'Unable to create user at this time.' });
+  } else {
+    console.warn('Firebase is not configured; skipping remote account provisioning for', normalizedEmail);
   }
 
   const created = await prisma.user.create({
@@ -308,16 +312,20 @@ authRouter.patch('/users/:id', async (req: AuthenticatedRequest, res) => {
     }
   }
 
-  const firebaseAdmin = getFirebaseAdmin();
+  const firebaseAdmin = getFirebaseAdmin({ allowUninitialized: true });
   let firebaseUser;
-  try {
-    firebaseUser = await firebaseAdmin.auth().getUserByEmail(existingEmailNormalized);
-  } catch (error) {
-    const code = (error as { code?: string }).code;
-    if (code !== 'auth/user-not-found') {
-      console.error('Failed to load Firebase user for update', error);
-      return res.status(500).json({ message: 'Unable to update user profile.' });
+  if (firebaseAdmin) {
+    try {
+      firebaseUser = await firebaseAdmin.auth().getUserByEmail(existingEmailNormalized);
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      if (code !== 'auth/user-not-found') {
+        console.error('Failed to load Firebase user for update', error);
+        return res.status(500).json({ message: 'Unable to update user profile.' });
+      }
+      firebaseUser = null;
     }
+  } else {
     firebaseUser = null;
   }
 
@@ -333,7 +341,7 @@ authRouter.patch('/users/:id', async (req: AuthenticatedRequest, res) => {
     updatePayload.displayName = trimmedDisplayName.length > 0 ? trimmedDisplayName : null;
   }
 
-  if (firebaseUser && Object.keys(updatePayload).length > 0) {
+  if (firebaseAdmin && firebaseUser && Object.keys(updatePayload).length > 0) {
     try {
       await firebaseAdmin.auth().updateUser(firebaseUser.uid, updatePayload);
     } catch (error) {
@@ -378,16 +386,20 @@ authRouter.delete('/users/:id', async (req: AuthenticatedRequest, res) => {
     return res.status(400).json({ message: 'Reserved workspace accounts cannot be deleted.' });
   }
 
-  const firebaseAdmin = getFirebaseAdmin();
-  try {
-    const firebaseUser = await firebaseAdmin.auth().getUserByEmail(normalized);
-    await firebaseAdmin.auth().deleteUser(firebaseUser.uid);
-  } catch (error) {
-    const code = (error as { code?: string }).code;
-    if (code !== 'auth/user-not-found') {
-      console.error('Failed to delete Firebase user', error);
-      return res.status(500).json({ message: 'Unable to delete user at this time.' });
+  const firebaseAdmin = getFirebaseAdmin({ allowUninitialized: true });
+  if (firebaseAdmin) {
+    try {
+      const firebaseUser = await firebaseAdmin.auth().getUserByEmail(normalized);
+      await firebaseAdmin.auth().deleteUser(firebaseUser.uid);
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      if (code !== 'auth/user-not-found') {
+        console.error('Failed to delete Firebase user', error);
+        return res.status(500).json({ message: 'Unable to delete user at this time.' });
+      }
     }
+  } else {
+    console.warn('Firebase is not configured; skipping remote deletion for', normalized);
   }
 
   await prisma.user.delete({ where: { id } });

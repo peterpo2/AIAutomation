@@ -1,6 +1,6 @@
 import type { UserRecord } from 'firebase-admin/auth';
 import { prisma } from './prisma.client.js';
-import { getFirebaseAdmin } from './firebase.service.js';
+import { getFirebaseAdmin, type FirebaseAdminClient } from './firebase.service.js';
 import { DEFAULT_ROLE, USER_ROLES, type UserRole } from './permissions.js';
 import { normalizeEmail } from './email.utils.js';
 import {
@@ -29,7 +29,7 @@ const ensureDatabaseUser = async (seed: SeedUserDefinition) => {
 };
 
 const ensureFirebaseUser = async (
-  admin: ReturnType<typeof getFirebaseAdmin>,
+  admin: FirebaseAdminClient,
   seed: SeedUserDefinition,
 ): Promise<boolean> => {
   let userRecord: UserRecord | null = null;
