@@ -1,11 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Video, Save, Trash2, Edit2 } from 'lucide-react';
+import { Video, Save, Trash2, Edit2, Folder, ChevronRight, ChevronDown } from 'lucide-react';
 import { VIDEO_STATUSES, type VideoMetadata, type VideoStatus } from '../lib/supabase';
 import { fetchUploads, createUpload, updateUpload, deleteUpload } from '../lib/uploadsApi';
 import { useAuth } from '../context/AuthContext';
 import type { DropboxFile } from '../lib/dropbox';
-import { buildVideoMetadataFromDropboxFile } from '../utils/dropboxMetadata';
+import { buildVideoMetadataFromDropboxFile, extractDropboxPathInfo } from '../utils/dropboxMetadata';
 
 const LOCAL_QUEUE_KEY = 'upload_queue_local_drafts';
 
@@ -113,11 +113,106 @@ const formatFileSize = (size?: number | null) => {
 
 const getVideoKey = (video: VideoMetadata, fallback: number) => video.id ?? video.dropbox_id ?? fallback;
 
+type UploadTreeVideo = {
+  video: VideoMetadata;
+  index: number;
+  key: string | number;
+};
+
+type UploadTreeNode = {
+  name: string;
+  path: string;
+  videos: UploadTreeVideo[];
+  children: Map<string, UploadTreeNode>;
+};
+
+const sanitizeSegments = (value: string | null | undefined): string[] => {
+  if (!value) return [];
+  return value
+    .split('/')
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+};
+
+const getVideoFolderSegments = (video: VideoMetadata): string[] => {
+  const segments: string[] = [];
+  const brand = (video.brand ?? '').trim();
+  if (brand) {
+    segments.push(brand);
+  }
+
+  const categorySegments = sanitizeSegments(video.category);
+  if (categorySegments.length > 0) {
+    segments.push(...categorySegments);
+  }
+
+  if (segments.length > 0) {
+    return segments;
+  }
+
+  const info = extractDropboxPathInfo(video.file_path ?? '');
+  if (info.folderSegments.length > 0) {
+    return info.folderSegments;
+  }
+
+  if (info.segments.length > 0) {
+    return info.segments;
+  }
+
+  return [];
+};
+
+const buildUploadTree = (videos: VideoMetadata[]): UploadTreeNode => {
+  const root: UploadTreeNode = {
+    name: '',
+    path: '',
+    videos: [],
+    children: new Map(),
+  };
+
+  videos.forEach((video, index) => {
+    const key = getVideoKey(video, index);
+    const segments = getVideoFolderSegments(video);
+
+    if (segments.length === 0) {
+      root.videos.push({ video, index, key });
+      return;
+    }
+
+    let currentNode = root;
+    let currentPath = '';
+
+    segments.forEach((segment) => {
+      currentPath = currentPath ? `${currentPath}/${segment}` : segment;
+      const existing = currentNode.children.get(segment);
+      if (existing) {
+        currentNode = existing;
+        return;
+      }
+
+      const nextNode: UploadTreeNode = {
+        name: segment,
+        path: currentPath,
+        videos: [],
+        children: new Map(),
+      };
+      currentNode.children.set(segment, nextNode);
+      currentNode = nextNode;
+    });
+
+    currentNode.videos.push({ video, index, key });
+  });
+
+  return root;
+};
+
 export default function Uploads() {
   const { user } = useAuth();
   const [videos, setVideos] = useState<VideoMetadata[]>([]);
   const [editingId, setEditingId] = useState<string | number | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => new Set(['']));
+  const knownFoldersRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const drafts = readLocalDrafts();
@@ -173,6 +268,224 @@ export default function Uploads() {
     persistLocalDrafts(videos);
   }, [videos]);
 
+  const updateVideo = useCallback(
+    (index: number, field: keyof VideoMetadata, value: string) => {
+      setVideos((prev) => {
+        const next = [...prev];
+        const updated = { ...next[index], [field]: value };
+        next[index] = sanitizeVideoMetadata(updated);
+        return next;
+      });
+    },
+    [],
+  );
+
+  const uploadTree = useMemo(() => buildUploadTree(videos), [videos]);
+
+  useEffect(() => {
+    const collectFolderPaths = (node: UploadTreeNode): string[] => {
+      const paths: string[] = [];
+      node.children.forEach((child) => {
+        paths.push(child.path);
+        paths.push(...collectFolderPaths(child));
+      });
+      return paths;
+    };
+
+    const paths = collectFolderPaths(uploadTree);
+    if (paths.length === 0) {
+      return;
+    }
+
+    setExpandedFolders((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      paths.forEach((path) => {
+        if (!knownFoldersRef.current.has(path)) {
+          knownFoldersRef.current.add(path);
+          next.add(path);
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [uploadTree]);
+
+  const toggleFolder = useCallback((path: string) => {
+    setExpandedFolders((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      return next;
+    });
+  }, []);
+
+  const isFolderExpanded = useCallback(
+    (path: string) => {
+      if (!path) return true;
+      return expandedFolders.has(path);
+    },
+    [expandedFolders],
+  );
+
+  const renderVideoCard = ({ video, index, key }: UploadTreeVideo) => {
+    const isSaved = Boolean(video.id);
+    const isEditing = !isSaved || editingId === key;
+
+    return (
+      <motion.div
+        key={key}
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: index * 0.05 }}
+        className="bg-white rounded-xl shadow-lg p-6"
+      >
+        <div className="flex items-start gap-4">
+          <div className="bg-gradient-to-br from-gray-100 to-gray-200 w-32 h-20 rounded-lg flex items-center justify-center flex-shrink-0">
+            <Video className="w-8 h-8 text-gray-400" />
+          </div>
+
+          <div className="flex-1 space-y-4">
+            <div>
+              <h3 className="font-semibold text-gray-800">{video.file_name ?? 'Untitled video'}</h3>
+              <p className="text-sm text-gray-500">{formatFileSize(video.file_size)}</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Brand</label>
+                <input
+                  type="text"
+                  value={video.brand ?? ''}
+                  onChange={(e) => updateVideo(index, 'brand', e.target.value)}
+                  placeholder="e.g., Kaufland, Lidl, TikTok"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all outline-none text-sm"
+                  disabled={!isEditing}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                <select
+                  value={video.category ?? ''}
+                  onChange={(e) => updateVideo(index, 'category', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all outline-none text-sm"
+                  disabled={!isEditing}
+                >
+                  <option value="">Select category</option>
+                  <option value="promotional">Promotional</option>
+                  <option value="product">Product</option>
+                  <option value="educational">Educational</option>
+                  <option value="entertainment">Entertainment</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                <select
+                  value={video.status ?? 'pending'}
+                  onChange={(e) => updateVideo(index, 'status', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all outline-none text-sm"
+                  disabled={!isEditing}
+                >
+                  {VIDEO_STATUSES.map((status) => (
+                    <option key={status} value={status}>
+                      {status.charAt(0).toUpperCase() + status.slice(1)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Caption</label>
+              <textarea
+                value={video.caption ?? ''}
+                onChange={(e) => updateVideo(index, 'caption', e.target.value)}
+                placeholder="Write a caption for this video..."
+                rows={2}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all outline-none text-sm resize-none"
+                disabled={!isEditing}
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            {isEditing ? (
+              <button
+                onClick={() => handleSave(video, index)}
+                className="p-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
+                title="Save"
+              >
+                <Save className="w-5 h-5" />
+              </button>
+            ) : (
+              <button
+                onClick={() => setEditingId(key)}
+                className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                title="Edit"
+              >
+                <Edit2 className="w-5 h-5" />
+              </button>
+            )}
+            <button
+              onClick={() => handleDelete(video, index)}
+              className="p-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+              title="Delete"
+            >
+              <Trash2 className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    );
+  };
+
+  const renderFolder = (node: UploadTreeNode): JSX.Element => {
+    const isRoot = node.path.length === 0;
+    const childFolders = Array.from(node.children.values()).sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
+    );
+    const sortedVideos = [...node.videos].sort((a, b) =>
+      (a.video.file_name ?? '').localeCompare(b.video.file_name ?? '', undefined, { sensitivity: 'base' }),
+    );
+
+    const expanded = isFolderExpanded(node.path);
+
+    return (
+      <div key={node.path || '__root'} className="space-y-3">
+        {!isRoot && (
+          <button
+            type="button"
+            onClick={() => toggleFolder(node.path)}
+            className="w-full flex items-center justify-between bg-white border border-gray-200 rounded-xl px-4 py-3 text-left shadow-sm hover:shadow-md transition-shadow"
+          >
+            <div className="flex items-center gap-3">
+              {expanded ? (
+                <ChevronDown className="w-5 h-5 text-gray-500" />
+              ) : (
+                <ChevronRight className="w-5 h-5 text-gray-500" />
+              )}
+              <Folder className="w-5 h-5 text-gray-600" />
+              <span className="font-semibold text-gray-800">{node.name}</span>
+            </div>
+            <span className="text-sm text-gray-500">{`${childFolders.length} folders · ${sortedVideos.length} videos`}</span>
+          </button>
+        )}
+
+        {(isRoot || expanded) && (
+          <div className={`${isRoot ? '' : 'pl-6 border-l border-gray-200'} space-y-4`}>
+            {childFolders.map((child) => renderFolder(child))}
+            {sortedVideos.map((item) => renderVideoCard(item))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const handleSave = async (video: VideoMetadata, index: number) => {
     const sanitized = sanitizeVideoMetadata(video);
 
@@ -227,15 +540,6 @@ export default function Uploads() {
     }
   };
 
-  const updateVideo = (index: number, field: keyof VideoMetadata, value: string) => {
-    setVideos((prev) => {
-      const next = [...prev];
-      const updated = { ...next[index], [field]: value };
-      next[index] = sanitizeVideoMetadata(updated);
-      return next;
-    });
-  };
-
   return (
     <div className="space-y-6">
       <div>
@@ -262,129 +566,7 @@ export default function Uploads() {
           <p className="text-gray-600">Select videos from Dropbox to get started</p>
         </motion.div>
       ) : (
-        <div className="space-y-4">
-          {videos.map((video, index) => {
-            const key = getVideoKey(video, index);
-            const isSaved = Boolean(video.id);
-            const isEditing = !isSaved || editingId === key;
-
-            return (
-              <motion.div
-                key={key}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.05 }}
-                className="bg-white rounded-xl shadow-lg p-6"
-              >
-                <div className="flex items-start gap-4">
-                  <div className="bg-gradient-to-br from-gray-100 to-gray-200 w-32 h-20 rounded-lg flex items-center justify-center flex-shrink-0">
-                    <Video className="w-8 h-8 text-gray-400" />
-                  </div>
-
-                  <div className="flex-1 space-y-4">
-                    <div>
-                      <h3 className="font-semibold text-gray-800">{video.file_name ?? 'Untitled video'}</h3>
-                      <p className="text-sm text-gray-500">{formatFileSize(video.file_size)}</p>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Brand
-                        </label>
-                        <input
-                          type="text"
-                          value={video.brand ?? ''}
-                          onChange={(e) => updateVideo(index, 'brand', e.target.value)}
-                          placeholder="e.g., Kaufland, Lidl, TikTok"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all outline-none text-sm"
-                          disabled={!isEditing}
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Category
-                        </label>
-                        <select
-                          value={video.category ?? ''}
-                          onChange={(e) => updateVideo(index, 'category', e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all outline-none text-sm"
-                          disabled={!isEditing}
-                        >
-                          <option value="">Select category</option>
-                          <option value="promotional">Promotional</option>
-                          <option value="product">Product</option>
-                          <option value="educational">Educational</option>
-                          <option value="entertainment">Entertainment</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Status
-                        </label>
-                        <select
-                          value={video.status ?? 'pending'}
-                          onChange={(e) => updateVideo(index, 'status', e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all outline-none text-sm"
-                          disabled={!isEditing}
-                        >
-                          {VIDEO_STATUSES.map((status) => (
-                            <option key={status} value={status}>
-                              {status.charAt(0).toUpperCase() + status.slice(1)}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Caption
-                      </label>
-                      <textarea
-                        value={video.caption ?? ''}
-                        onChange={(e) => updateVideo(index, 'caption', e.target.value)}
-                        placeholder="Write a caption for this video..."
-                        rows={2}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all outline-none text-sm resize-none"
-                        disabled={!isEditing}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col gap-2">
-                    {isEditing ? (
-                      <button
-                        onClick={() => handleSave(video, index)}
-                        className="p-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
-                        title="Save"
-                      >
-                        <Save className="w-5 h-5" />
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => setEditingId(key)}
-                        className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
-                        title="Edit"
-                      >
-                        <Edit2 className="w-5 h-5" />
-                      </button>
-                    )}
-                    <button
-                      onClick={() => handleDelete(video, index)}
-                      className="p-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
-                      title="Delete"
-                    >
-                      <Trash2 className="w-5 h-5" />
-                    </button>
-                  </div>
-                </div>
-              </motion.div>
-            );
-          })}
-        </div>
+        <div className="space-y-4">{renderFolder(uploadTree)}</div>
       )}
     </div>
   );
