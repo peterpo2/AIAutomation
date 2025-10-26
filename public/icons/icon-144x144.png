@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">SmartOps Automation Engine Logo</title>
+  <desc id="desc">Stylised lightning bolt within a rounded square symbolising automation power.</desc>
+  <rect x="12" y="12" width="232" height="232" rx="56" fill="#111827" />
+  <path d="M152 40L56 144h56l-8 72 96-104h-56l8-72z" fill="#f97316" />
+  <path d="M132 96l-24 24h24l-4 40 24-24h-24l4-40z" fill="#fde68a" />
+</svg>
