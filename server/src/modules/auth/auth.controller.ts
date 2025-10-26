@@ -240,8 +240,7 @@ authRouter.post('/users', async (req: AuthenticatedRequest, res) => {
       if (code === 'auth/email-already-exists') {
         return res.status(409).json({ message: 'A Firebase account with this email already exists.' });
       }
-      console.error('Failed to create Firebase user', error);
-      return res.status(500).json({ message: 'Unable to create user at this time.' });
+      console.warn('Failed to provision Firebase user. Continuing with local record only.', error);
     }
   } else {
     console.warn('Firebase is not configured; skipping remote account provisioning for', normalizedEmail);
@@ -320,8 +319,7 @@ authRouter.patch('/users/:id', async (req: AuthenticatedRequest, res) => {
     } catch (error) {
       const code = (error as { code?: string }).code;
       if (code !== 'auth/user-not-found') {
-        console.error('Failed to load Firebase user for update', error);
-        return res.status(500).json({ message: 'Unable to update user profile.' });
+        console.warn('Failed to load Firebase user for update. Skipping remote sync.', error);
       }
       firebaseUser = null;
     }
@@ -345,8 +343,7 @@ authRouter.patch('/users/:id', async (req: AuthenticatedRequest, res) => {
     try {
       await firebaseAdmin.auth().updateUser(firebaseUser.uid, updatePayload);
     } catch (error) {
-      console.error('Failed to update Firebase user', error);
-      return res.status(500).json({ message: 'Unable to update user profile.' });
+      console.warn('Failed to update Firebase user. Local profile changes applied only.', error);
     }
   }
 
@@ -394,8 +391,7 @@ authRouter.delete('/users/:id', async (req: AuthenticatedRequest, res) => {
     } catch (error) {
       const code = (error as { code?: string }).code;
       if (code !== 'auth/user-not-found') {
-        console.error('Failed to delete Firebase user', error);
-        return res.status(500).json({ message: 'Unable to delete user at this time.' });
+        console.warn('Failed to remove Firebase user. Continuing with local deletion.', error);
       }
     }
   } else {
