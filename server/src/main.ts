@@ -16,19 +16,11 @@ import { errorHandler } from './modules/auth/error.middleware.js';
 import { captionGeneratorRouter } from './modules/caption-generator/caption-generator.controller.js';
 import { bootstrapWorkspaceUsers } from './modules/auth/user.bootstrap.js';
 import { automationsRouter } from './modules/automations/automations.controller.js';
+import { assertStartupStatus, runStartupChecks } from './startup/startup-checks.js';
 
 dotenv.config();
 
 const app = express();
-
-void bootstrapWorkspaceUsers().then((result) => {
-  if (!result) return;
-  if (result.createdFirebase > 0 || result.ensuredDatabase > 0) {
-    console.log(
-      `Workspace bootstrap complete: ${result.createdFirebase} Firebase accounts ensured, ${result.ensuredDatabase} database records aligned.`,
-    );
-  }
-});
 
 const allowedOrigins = (process.env.CORS_WHITELIST || '').split(',').filter(Boolean);
 app.use(
@@ -62,16 +54,39 @@ app.get('/health', (_req, res) => {
 
 app.use(errorHandler);
 
-const port = process.env.PORT || 8080;
-
 const server = createServer(app);
-server.listen(port, () => {
-  console.log(`SmartOps backend listening on port ${port}`);
-});
 
-scheduler
-  .init()
-  .then(() => console.log('Scheduler initialized'))
-  .catch((err) => console.error('Scheduler initialization failed', err));
+async function bootstrap() {
+  try {
+    const status = await runStartupChecks();
+    assertStartupStatus(status);
+    console.log('All startup checks passed.');
+  } catch (error) {
+    console.error('Startup checks failed. Aborting launch.', error);
+    process.exit(1);
+  }
+
+  void bootstrapWorkspaceUsers().then((result) => {
+    if (!result) return;
+    if (result.createdFirebase > 0 || result.ensuredDatabase > 0) {
+      console.log(
+        `Workspace bootstrap complete: ${result.createdFirebase} Firebase accounts ensured, ${result.ensuredDatabase} database records aligned.`,
+      );
+    }
+  });
+
+  const port = process.env.PORT || 8080;
+
+  server.listen(port, () => {
+    console.log(`SmartOps backend listening on port ${port}`);
+  });
+
+  scheduler
+    .init()
+    .then(() => console.log('Scheduler initialized'))
+    .catch((err) => console.error('Scheduler initialization failed', err));
+}
+
+void bootstrap();
 
 export default app;

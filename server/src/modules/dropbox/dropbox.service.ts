@@ -81,6 +81,11 @@ function clearTokenCache() {
 
 /** ---- Main Service ---- */
 export const dropboxService = {
+  async verifyConnection(): Promise<void> {
+    const client = await getDropboxClient();
+    await client.usersGetCurrentAccount();
+  },
+
   /**
    * Recursively scans Dropbox (starting at `path`) and inserts any new files into DB.
    * Triggers AI caption generation and sends a push summary for newly found videos.
