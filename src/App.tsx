@@ -14,6 +14,7 @@ import Settings from './pages/Settings';
 import Permissions from './pages/Permissions';
 import UserManagement from './pages/UserManagement';
 import Automations from './pages/Automations';
+import AutomationDetails from './pages/Automations/[id]';
 import Clients from './pages/Clients';
 
 function App() {
@@ -41,6 +42,7 @@ function App() {
                     <Route path="/uploads" element={<Uploads />} />
                     <Route path="/reports" element={<Reports />} />
                     <Route path="/automations" element={<Automations />} />
+                    <Route path="/automations/:id" element={<AutomationDetails />} />
                     <Route path="/clients" element={<Clients />} />
                     <Route path="/settings" element={<Settings />} />
                     <Route
