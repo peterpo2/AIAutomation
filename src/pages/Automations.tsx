@@ -1,13 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import {
-  AlertTriangle,
-  ArrowRight,
-  Loader2,
-  PlugZap,
-  Sparkles,
-  Workflow,
-} from 'lucide-react';
+import { AlertTriangle, ArrowRight, Loader2, PlugZap, Sparkles, Workflow } from 'lucide-react';
 import AutomationFlowCanvas from '../components/automations/AutomationFlowCanvas';
 import { useAuth } from '../context/AuthContext';
 import { apiFetch } from '../lib/apiClient';
@@ -22,20 +15,111 @@ interface FocusOption {
 const focusOptions: FocusOption[] = [
   {
     id: 'overall pipeline performance',
-    label: 'Pipeline Health',
-    description: 'Surface bottlenecks and orchestration risks.',
+    label: 'Workflow Stability',
+    description: 'Spot blockers before they slow down delivery.',
   },
   {
     id: 'content quality and ideation velocity',
-    label: 'Creative Quality',
-    description: 'Elevate briefs, hooks, and storytelling velocity.',
+    label: 'Content Performance',
+    description: 'See which ideas and assets are resonating.',
   },
   {
     id: 'automation reliability and release readiness',
-    label: 'Automation Reliability',
-    description: 'Reinforce scheduling, retries, and runtime stability.',
+    label: 'System Uptime',
+    description: 'Monitor handoffs, retries, and publishing health.',
   },
 ];
+
+interface EnrichedAutomationNode extends AutomationNode {
+  emoji?: string;
+  tooltip?: string;
+}
+
+const automationCopy: Record<
+  string,
+  {
+    title: string;
+    description: string;
+    function: string;
+    tooltip: string;
+    emoji: string;
+    order: number;
+    step: string;
+  }
+> = {
+  CCC: {
+    title: 'Content Planner',
+    description: 'Creates a weekly content calendar using AI ideas tied to your brand keywords.',
+    function: 'Keeps the team aligned on what to create next.',
+    tooltip: 'Strategize campaigns and themes before production kicks off.',
+    emoji: '🧠',
+    order: 1,
+    step: 'Step 1 · Plan',
+  },
+  VPE: {
+    title: 'Video Editor',
+    description: 'Automatically edits new footage, adds captions, and preps final cuts.',
+    function: 'Delivers ready-to-post clips without manual editing.',
+    tooltip: 'Automate the repetitive edits so the team can focus on storytelling.',
+    emoji: '🎬',
+    order: 2,
+    step: 'Step 2 · Produce',
+  },
+  USP: {
+    title: 'Post Scheduler',
+    description: 'Finds the best posting windows based on engagement trends.',
+    function: 'Maximizes reach by launching content at peak times.',
+    tooltip: 'Uses past performance to build a publishing runway automatically.',
+    emoji: '⏰',
+    order: 3,
+    step: 'Step 3 · Schedule',
+  },
+  UMS: {
+    title: 'Media Manager',
+    description: 'Stores and tags approved assets for quick reuse across campaigns.',
+    function: 'Keeps creative files organized and searchable for the team.',
+    tooltip: 'Maintain a living library of clips, thumbnails, and copy.',
+    emoji: '💾',
+    order: 4,
+    step: 'Step 4 · Organize',
+  },
+  AL: {
+    title: 'Account Connector',
+    description: 'Links TikTok, Instagram, and YouTube accounts securely via OAuth.',
+    function: 'Ensures every automation posts to the right brand channels.',
+    tooltip: 'Refreshes tokens so campaigns stay authenticated.',
+    emoji: '🔐',
+    order: 5,
+    step: 'Step 5 · Connect',
+  },
+  AR: {
+    title: 'Automation Rules',
+    description: 'Defines publishing triggers, guardrails, and approval logic.',
+    function: 'Protects brand quality with smart automation governance.',
+    tooltip: 'Configure when content goes live and who signs off.',
+    emoji: '⚙️',
+    order: 6,
+    step: 'Step 6 · Govern',
+  },
+  WAU: {
+    title: 'Weekly Auto Uploader',
+    description: 'Pushes approved videos to every connected account each Monday.',
+    function: 'Eliminates manual uploads when campaigns launch.',
+    tooltip: 'Guarantees launches stay on schedule across platforms.',
+    emoji: '📡',
+    order: 7,
+    step: 'Step 7 · Launch',
+  },
+  MAO: {
+    title: 'Performance Tracker',
+    description: 'Generates analytics recaps with the week’s top-performing posts.',
+    function: 'Provides clear feedback to steer the next sprint.',
+    tooltip: 'Review outcomes and reallocate budget with confidence.',
+    emoji: '📊',
+    order: 8,
+    step: 'Step 8 · Analyze',
+  },
+};
 
 const formatDuration = (ms: number | null | undefined): string => {
   if (ms == null || !Number.isFinite(ms)) {
@@ -88,7 +172,7 @@ const formatResponseSnippet = (body: unknown): string => {
 
 export default function Automations() {
   const { user } = useAuth();
-  const [nodes, setNodes] = useState<AutomationNode[]>([]);
+  const [nodes, setNodes] = useState<EnrichedAutomationNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedFocus, setSelectedFocus] = useState<string>(focusOptions[0]?.id ?? 'overall pipeline performance');
@@ -100,6 +184,9 @@ export default function Automations() {
 
   useEffect(() => {
     if (!user) {
+      setNodes([]);
+      setError(null);
+      setLoading(false);
       return;
     }
 
@@ -123,7 +210,21 @@ export default function Automations() {
 
         const data = (await response.json()) as { nodes: AutomationNode[] };
         if (!active) return;
-        setNodes(data.nodes);
+        const enriched = data.nodes.map<EnrichedAutomationNode>((node) => {
+          const overrides = automationCopy[node.code];
+
+          return {
+            ...node,
+            title: overrides?.title ?? node.title,
+            description: overrides?.description ?? node.description,
+            function: overrides?.function ?? node.function,
+            step: overrides?.step ?? node.step,
+            emoji: overrides?.emoji ?? '🤖',
+            tooltip: overrides?.tooltip ?? node.function,
+            sequence: overrides?.order ?? node.sequence,
+          };
+        });
+        setNodes(enriched);
       } catch (err) {
         if (!active) return;
         const message = err instanceof Error ? err.message : 'Unable to load automation map.';
@@ -236,16 +337,46 @@ export default function Automations() {
           },
         });
 
-        const data = (await response.json().catch(() => null)) as AutomationRunResult | null;
-        if (!data) {
-          throw new Error('Unexpected response from n8n bridge.');
+        const data = (await response
+          .clone()
+          .json()
+          .catch(() => null)) as AutomationRunResult | null;
+
+        if (data) {
+          setRunStates((prev) => ({
+            ...prev,
+            [code]: {
+              status: response.ok && data.ok ? 'success' : 'error',
+              result: data,
+            },
+          }));
+          return;
         }
+
+        const rawBody = await response.text().catch(() => null);
+        const headersRecord = Object.fromEntries(response.headers.entries()) as Record<string, string>;
+        const fallback: AutomationRunResult = {
+          code,
+          ok: response.ok,
+          httpStatus: Number.isFinite(response.status) ? response.status : null,
+          statusText: response.statusText || null,
+          webhookUrl: nodes.find((node) => node.code === code)?.webhookUrl ?? null,
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+          durationMs: 0,
+          requestPayload: null,
+          responseBody: rawBody && rawBody.length > 0 ? rawBody : null,
+          responseHeaders: headersRecord,
+          ...(response.ok
+            ? {}
+            : { error: rawBody && rawBody.length > 0 ? rawBody : 'Unexpected response from n8n bridge.' }),
+        };
 
         setRunStates((prev) => ({
           ...prev,
           [code]: {
-            status: response.ok && data.ok ? 'success' : 'error',
-            result: data,
+            status: response.ok ? 'success' : 'error',
+            result: fallback,
           },
         }));
       } catch (err) {
@@ -284,21 +415,21 @@ export default function Automations() {
 
     return [
       {
-        label: 'Active Nodes',
+        label: 'Operational',
         value: active,
-        description: 'n8n-ready with AI coverage.',
+        description: 'Nodes ready for production triggers.',
         icon: Workflow,
       },
       {
-        label: 'Under Watch',
+        label: 'Needs Review',
         value: monitoring,
-        description: 'Requires manual review.',
+        description: 'Flagged by SmartOps for attention.',
         icon: AlertTriangle,
       },
       {
-        label: 'Connected to n8n',
-        value: `${connected}/${nodes.length}`,
-        description: 'Webhooks mapped and reachable.',
+        label: 'n8n Linked',
+        value: `${connected}/${nodes.length || 0}`,
+        description: 'Webhooks wired into n8n bridge.',
         icon: PlugZap,
       },
     ];
@@ -324,63 +455,98 @@ export default function Automations() {
         className="relative overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-10 text-white shadow-2xl dark:border-slate-800"
       >
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.12),_transparent_55%)]" />
-        <div className="relative z-10 grid gap-10 lg:grid-cols-[1.6fr_1fr]">
-          <div className="space-y-6">
+        <div className="relative z-10 flex flex-col gap-10 lg:flex-row lg:items-center lg:justify-between">
+          <div className="max-w-2xl space-y-6">
             <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-1 text-sm font-medium">
               <Workflow className="h-4 w-4" />
               SmartOps × n8n Bridge
             </div>
-            <h1 className="text-4xl font-bold tracking-tight">Connected Automation Control Room</h1>
-            <p className="text-lg text-slate-200">
-              Trigger production-grade workflows through n8n webhooks and inspect the responses without leaving SmartOps.
-            </p>
-            {nodes.length > 0 && (
-              <div
-                className={`inline-flex items-center gap-2 rounded-2xl border px-4 py-2 text-sm font-semibold ${
-                  missingN8n
-                    ? 'border-amber-300/70 bg-amber-500/20 text-amber-100'
-                    : 'border-white/30 bg-white/10 text-white/90'
-                }`}
-              >
-                {missingN8n ? (
-                  <>
-                    <AlertTriangle className="h-4 w-4" />
-                    Set <code className="font-mono text-amber-100">N8N_BASE_URL</code> to activate webhook routing.
-                  </>
-                ) : (
-                  <>
-                    <PlugZap className="h-4 w-4 text-emerald-300" />
-                    {connectedCount} of {nodes.length} nodes wired to n8n
-                  </>
-                )}
+            <div className="space-y-2">
+              <h1 className="text-4xl font-bold tracking-tight">SmartOps Automation Dashboard</h1>
+              <p className="text-lg text-slate-200">
+                Blend SmartOps orchestration with n8n webhooks. Launch marketing automations, monitor outcomes, and keep
+                every campaign moving.
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl border border-white/20 bg-white/10 p-4">
+                <p className="text-xs uppercase tracking-wide text-white/70">Bridge Status</p>
+                <p className="mt-2 text-2xl font-semibold text-white">
+                  {missingN8n ? 'Configuration Needed' : 'Live Connection'}
+                </p>
+                <p className="mt-1 text-sm text-white/70">
+                  {missingN8n
+                    ? 'Add N8N_BASE_URL to sync SmartOps triggers with your n8n instance.'
+                    : `${connectedCount} of ${nodes.length} nodes are actively synced with n8n.`}
+                </p>
               </div>
-            )}
+              <div className="rounded-2xl border border-white/20 bg-white/10 p-4">
+                <p className="text-xs uppercase tracking-wide text-white/70">Latest Activity</p>
+                <p className="mt-2 text-2xl font-semibold text-white">
+                  {recentRuns[0] ? formatTimestamp(recentRuns[0].finishedAt) : 'Awaiting runs'}
+                </p>
+                <p className="mt-1 text-sm text-white/70">
+                  {recentRuns[0]
+                    ? `Workflow ${recentRuns[0].code} ${recentRuns[0].ok ? 'responded successfully' : 'returned an error'}.`
+                    : 'Run an automation to see live results.'}
+                </p>
+              </div>
+            </div>
           </div>
-          <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-1">
-            {metrics.map((metric, index) => (
-              <motion.div
-                key={metric.label}
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.1 * index, duration: 0.3 }}
-                className="rounded-2xl border border-white/20 bg-white/10 p-4 backdrop-blur dark:border-white/10 dark:bg-white/5"
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm uppercase tracking-wide text-slate-200/80">{metric.label}</p>
-                    <p className="mt-2 text-3xl font-semibold">
-                      {typeof metric.value === 'number' ? metric.value : metric.value}
-                    </p>
-                  </div>
-                  <div className="rounded-xl bg-white/20 p-3 text-white">
-                    <metric.icon className="h-6 w-6" />
-                  </div>
-                </div>
-                <p className="mt-3 text-xs text-slate-200/70">{metric.description}</p>
-              </motion.div>
-            ))}
+          <div className="relative flex w-full max-w-md flex-col gap-4 rounded-3xl border border-white/10 bg-white/5 p-6 text-left backdrop-blur-lg">
+            <div className="flex items-start gap-3">
+              <Sparkles className="mt-1 h-5 w-5 text-amber-300" />
+              <div className="space-y-1">
+                <p className="text-sm font-semibold uppercase tracking-wide text-white/80">n8n Automation Playbook</p>
+                <p className="text-sm text-white/70">
+                  Follow the checklist to keep your production automations healthy.
+                </p>
+              </div>
+            </div>
+            <ul className="space-y-3 text-sm text-white/80">
+              <li className="flex items-start gap-2">
+                <span className="mt-0.5 h-2 w-2 rounded-full bg-emerald-300" />
+                <span>Confirm each node webhook URL responds to a <code className="rounded bg-white/10 px-1">POST</code> ping.</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-0.5 h-2 w-2 rounded-full bg-sky-300" />
+                <span>Mirror SmartOps payload contracts inside your n8n workflows.</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="mt-0.5 h-2 w-2 rounded-full bg-rose-300" />
+                <span>Schedule synthetic runs weekly to catch authentication drift.</span>
+              </li>
+            </ul>
           </div>
         </div>
+      </motion.div>
+
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.05, duration: 0.3 }}
+        className="grid gap-4 md:grid-cols-3"
+      >
+        {metrics.map((metric, index) => (
+          <motion.div
+            key={metric.label}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.05 * index, duration: 0.3 }}
+            className="rounded-2xl border border-slate-200 bg-white p-5 shadow-lg dark:border-slate-800 dark:bg-slate-900"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">{metric.label}</p>
+                <p className="mt-3 text-3xl font-semibold text-slate-900 dark:text-white">{metric.value}</p>
+              </div>
+              <div className="rounded-xl bg-red-500/10 p-3 text-red-500 dark:bg-red-500/20 dark:text-red-300">
+                <metric.icon className="h-6 w-6" />
+              </div>
+            </div>
+            <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">{metric.description}</p>
+          </motion.div>
+        ))}
       </motion.div>
 
       {error && (
@@ -414,7 +580,58 @@ export default function Automations() {
             <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.15, duration: 0.3 }}
+              transition={{ delay: 0.12, duration: 0.3 }}
+              className="rounded-3xl border border-slate-200 bg-white p-6 shadow-xl dark:border-slate-800 dark:bg-slate-900"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Bridge Diagnostics</h2>
+                  <p className="text-sm text-slate-600 dark:text-slate-300">
+                    Snapshot of node reachability and environment variables for the n8n connector.
+                  </p>
+                </div>
+                <PlugZap className="h-5 w-5 text-red-500 dark:text-red-300" />
+              </div>
+              <div className="mt-4 space-y-3 text-sm text-slate-600 dark:text-slate-300">
+                <div className="flex items-start justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 dark:border-slate-700 dark:bg-slate-900/40">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Environment</p>
+                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">N8N_BASE_URL</p>
+                  </div>
+                  <span
+                    className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                      missingN8n
+                        ? 'bg-amber-500/20 text-amber-500 dark:bg-amber-500/10 dark:text-amber-300'
+                        : 'bg-emerald-500/20 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300'
+                    }`}
+                  >
+                    {missingN8n ? 'Missing' : 'Detected'}
+                  </span>
+                </div>
+                <div className="flex items-start justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 dark:border-slate-700 dark:bg-slate-900/40">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Linked Nodes</p>
+                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">{connectedCount}</p>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">{nodes.length} total mapped</p>
+                </div>
+                <div className="flex items-start justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 dark:border-slate-700 dark:bg-slate-900/40">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Last Response</p>
+                    <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                      {recentRuns[0] ? formatTimestamp(recentRuns[0].finishedAt) : 'Pending'}
+                    </p>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {recentRuns[0] ? (recentRuns[0].ok ? 'Healthy webhook' : 'Check logs for errors') : 'Run any workflow'}
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.18, duration: 0.3 }}
               className="rounded-3xl border border-slate-200 bg-white p-6 shadow-xl dark:border-slate-800 dark:bg-slate-900"
             >
               <div className="flex flex-col gap-4">
@@ -446,15 +663,24 @@ export default function Automations() {
                     );
                   })}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => void generateInsights()}
-                  className="inline-flex items-center gap-2 self-start rounded-xl bg-red-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-red-500/30 transition hover:bg-red-400 disabled:cursor-not-allowed disabled:bg-red-500/50"
-                  disabled={insightsLoading}
-                >
-                  <Sparkles className="h-4 w-4" />
-                  {insightsLoading ? 'Summoning AI…' : 'Refresh AI Synopsis'}
-                </button>
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => void generateInsights()}
+                    className="inline-flex items-center gap-2 rounded-xl bg-red-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-red-500/30 transition hover:bg-red-400 disabled:cursor-not-allowed disabled:bg-red-500/50"
+                    disabled={insightsLoading}
+                  >
+                    <Sparkles className="h-4 w-4" />
+                    {insightsLoading ? 'Generating AI Insights…' : 'Refresh AI Synopsis'}
+                  </button>
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                    {selectedFocus === 'automation reliability and release readiness'
+                      ? 'Great for quarterly release reviews.'
+                      : selectedFocus === 'content quality and ideation velocity'
+                        ? 'Track creative freshness before campaigns launch.'
+                        : 'Keep an eye on throughput and error budgets.'}
+                  </span>
+                </div>
                 <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950/40">
                   {insightsLoading ? (
                     <div className="flex items-center gap-3 text-sm text-slate-600 dark:text-slate-300">
@@ -463,7 +689,7 @@ export default function Automations() {
                         animate={{ opacity: [0.2, 1, 0.2] }}
                         transition={{ repeat: Infinity, duration: 1.2 }}
                       />
-                      Synthesising guidance with OpenAI…
+                      Generating AI Insights…
                     </div>
                   ) : insightsError ? (
                     <div className="flex items-center gap-3 text-sm text-red-600 dark:text-red-400">
@@ -490,7 +716,7 @@ export default function Automations() {
             <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2, duration: 0.3 }}
+              transition={{ delay: 0.24, duration: 0.3 }}
               className="rounded-3xl border border-slate-200 bg-white p-6 shadow-xl dark:border-slate-800 dark:bg-slate-900"
             >
               <div className="flex items-center justify-between">
@@ -503,7 +729,7 @@ export default function Automations() {
               <div className="mt-4 space-y-3">
                 {recentRuns.length === 0 ? (
                   <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300">
-                    Trigger a node to capture telemetry from n8n.
+                    Run an automation to see live results.
                   </p>
                 ) : (
                   recentRuns.map((run) => (
