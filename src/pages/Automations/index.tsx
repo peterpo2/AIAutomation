@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   Background,
-  ControlButton,
   Controls,
   MiniMap,
   MarkerType,
@@ -198,6 +197,19 @@ export default function AutomationsFlow() {
   >({});
   const statusIntervalRef = useRef<number | null>(null);
   const executionResetTimersRef = useRef<Record<string, number>>({});
+  const initialOrderRef = useRef<string[]>([]);
+  const defaultPositionsRef = useRef<Record<string, { x: number; y: number }>>({});
+  const saveFeedbackTimeoutRef = useRef<number | null>(null);
+  const [controlsVisible, setControlsVisible] = useState(false);
+  const [layoutDirty, setLayoutDirty] = useState(false);
+  const [savingLayout, setSavingLayout] = useState(false);
+  const [saveFeedback, setSaveFeedback] = useState<
+    | {
+        type: 'success' | 'error';
+        message: string;
+      }
+    | null
+  >(null);
 
   const n8nBaseUrl = useMemo(() => {
     const raw = import.meta.env.VITE_N8N_BASE_URL ?? '';
@@ -299,9 +311,9 @@ export default function AutomationsFlow() {
   );
 
   const persistNodePosition = useCallback(
-    async (id: string, position: { x: number; y: number }) => {
-      if (!user) {
-        return;
+    async (id: string, position: { x: number; y: number } | null | undefined) => {
+      if (!user || !position) {
+        return false;
       }
 
       try {
@@ -314,8 +326,10 @@ export default function AutomationsFlow() {
           },
           body: JSON.stringify({ x: position.x, y: position.y }),
         });
+        return true;
       } catch (err) {
         console.error('Failed to persist automation node position', err);
+        return false;
       }
     },
     [user],
@@ -324,12 +338,14 @@ export default function AutomationsFlow() {
   const persistNodePositions = useCallback(
     async (nodeList: AutomationFlowNode[]) => {
       if (!nodeList || nodeList.length === 0) {
-        return;
+        return true;
       }
 
-      await Promise.all(
+      const results = await Promise.all(
         nodeList.map((node) => persistNodePosition(node.id, node.position)),
       );
+
+      return results.every(Boolean);
     },
     [persistNodePosition],
   );
@@ -419,6 +435,18 @@ export default function AutomationsFlow() {
         {},
       );
 
+      initialOrderRef.current = items.map((item) => item.code);
+      defaultPositionsRef.current = items.reduce<Record<string, { x: number; y: number }>>(
+        (acc, item, index) => {
+          acc[item.code] = {
+            x: index * nodeSpacingX,
+            y: nodeStartY,
+          };
+          return acc;
+        },
+        {},
+      );
+
       setExecutionStates((prev) => {
         const next: Record<string, { status: 'idle' | 'running' | 'success' | 'error'; message?: string }> = {};
         items.forEach((item) => {
@@ -431,6 +459,8 @@ export default function AutomationsFlow() {
       setNodes(nextNodes);
       updateEdgesFromNodes(nextNodes);
       setInitialFitDone(false);
+      setLayoutDirty(false);
+      setSaveFeedback(null);
     },
     [buildNodes, setNodes, updateEdgesFromNodes],
   );
@@ -468,9 +498,10 @@ export default function AutomationsFlow() {
       if (meta) {
         automationMapRef.current[node.id] = { ...meta, position: node.position };
       }
-      void persistNodePosition(node.id, node.position);
+      setLayoutDirty(true);
+      setSaveFeedback(null);
     },
-    [persistNodePosition, setNodes, updateEdgesFromNodes],
+    [setNodes, updateEdgesFromNodes],
   );
 
   const handleInit = useCallback((instance: ReactFlowInstance) => {
@@ -529,11 +560,95 @@ export default function AutomationsFlow() {
 
       updateEdgesFromNodes(nextNodes as AutomationFlowNode[]);
       if (changedNodes.length > 0) {
-        void persistNodePositions(changedNodes);
+        setLayoutDirty(true);
+        setSaveFeedback(null);
       }
       return nextNodes;
     });
-  }, [edges, persistNodePositions, setNodes, updateEdgesFromNodes]);
+  }, [edges, setNodes, updateEdgesFromNodes]);
+
+  const handleResetToDefaultOrder = useCallback(() => {
+    const order = initialOrderRef.current;
+    if (!order || order.length === 0) {
+      return;
+    }
+
+    const orderedItems: AutomationOverviewItem[] = order
+      .map((id, index) => {
+        const meta = automationMapRef.current[id];
+        if (!meta) {
+          return null;
+        }
+
+        const defaultPosition = defaultPositionsRef.current[id] ?? {
+          x: index * nodeSpacingX,
+          y: nodeStartY,
+        };
+
+        return {
+          ...meta,
+          position: defaultPosition,
+        } satisfies AutomationOverviewItem;
+      })
+      .filter((item): item is AutomationOverviewItem => Boolean(item));
+
+    const knownIds = new Set(order);
+    const additionalItems: AutomationOverviewItem[] = Object.values(automationMapRef.current)
+      .filter((item) => !knownIds.has(item.code))
+      .map((item, index) => ({
+        ...item,
+        position: {
+          x: (orderedItems.length + index) * nodeSpacingX,
+          y: nodeStartY,
+        },
+      }));
+
+    const combined = [...orderedItems, ...additionalItems];
+    if (combined.length === 0) {
+      return;
+    }
+
+    const nextNodes = buildNodes(combined);
+    setNodes(nextNodes);
+    updateEdgesFromNodes(nextNodes);
+    combined.forEach((item) => {
+      automationMapRef.current[item.code] = { ...automationMapRef.current[item.code], position: item.position };
+    });
+    setLayoutDirty(true);
+    setSaveFeedback(null);
+  }, [buildNodes, updateEdgesFromNodes]);
+
+  const handleSaveLayout = useCallback(async () => {
+    if (savingLayout) {
+      return;
+    }
+
+    const latestNodes = (reactFlowInstance?.getNodes?.() ?? nodes) as AutomationFlowNode[];
+    if (!latestNodes || latestNodes.length === 0) {
+      setSaveFeedback({ type: 'error', message: 'No workflow nodes available to save.' });
+      return;
+    }
+
+    setSavingLayout(true);
+    setSaveFeedback(null);
+
+    const success = await persistNodePositions(latestNodes);
+
+    setSavingLayout(false);
+
+    if (success) {
+      latestNodes.forEach((node) => {
+        const meta = automationMapRef.current[node.id];
+        if (meta) {
+          automationMapRef.current[node.id] = { ...meta, position: node.position };
+        }
+      });
+      setLayoutDirty(false);
+      setSaveFeedback({ type: 'success', message: 'Workflow arrangement saved.' });
+    } else {
+      setSaveFeedback({ type: 'error', message: 'Unable to save layout. Please try again.' });
+    }
+  }, [nodes, persistNodePositions, reactFlowInstance, savingLayout]);
 
   const applyStatusUpdates = useCallback((updates: AutomationStatusUpdate[]) => {
     if (!updates || updates.length === 0) {
@@ -714,6 +829,10 @@ export default function AutomationsFlow() {
         window.clearTimeout(timerId);
       });
       executionResetTimersRef.current = {};
+      if (saveFeedbackTimeoutRef.current) {
+        window.clearTimeout(saveFeedbackTimeoutRef.current);
+        saveFeedbackTimeoutRef.current = null;
+      }
     };
   }, []);
 
@@ -725,6 +844,28 @@ export default function AutomationsFlow() {
     reactFlowInstance.fitView({ padding: 0.35, duration: 600, minZoom: 0.4 });
     setInitialFitDone(true);
   }, [reactFlowInstance, nodes, initialFitDone]);
+
+  useEffect(() => {
+    if (!saveFeedback) {
+      return;
+    }
+
+    if (saveFeedbackTimeoutRef.current) {
+      window.clearTimeout(saveFeedbackTimeoutRef.current);
+    }
+
+    saveFeedbackTimeoutRef.current = window.setTimeout(() => {
+      setSaveFeedback(null);
+      saveFeedbackTimeoutRef.current = null;
+    }, saveFeedback.type === 'success' ? 3200 : 4600);
+
+    return () => {
+      if (saveFeedbackTimeoutRef.current) {
+        window.clearTimeout(saveFeedbackTimeoutRef.current);
+        saveFeedbackTimeoutRef.current = null;
+      }
+    };
+  }, [saveFeedback]);
 
   return (
     <div className="space-y-10 text-slate-100">
@@ -757,21 +898,60 @@ export default function AutomationsFlow() {
           </div>
         ) : null}
 
-        <button
-          type="button"
-          onClick={() => {
-            if (nodes.length === 0) return;
-            handleAutoLayout();
-          }}
-          disabled={nodes.length === 0}
-          className={`absolute right-5 top-5 z-30 hidden rounded-full border border-slate-700/70 bg-slate-900/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-200 shadow-lg shadow-black/40 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/70 md:flex ${
-            nodes.length === 0
-              ? 'cursor-not-allowed opacity-60'
-              : 'hover:border-rose-500/50 hover:text-rose-200'
-          }`}
-        >
-          Rearrange nodes
-        </button>
+        <div className="absolute right-5 top-5 z-30 flex flex-col items-end gap-3">
+          <div className="flex flex-col gap-2 md:flex-row">
+            <button
+              type="button"
+              onClick={handleResetToDefaultOrder}
+              disabled={nodes.length === 0}
+              className={`rounded-full border border-slate-700/70 bg-slate-900/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-200 shadow-lg shadow-black/40 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/70 md:min-w-[168px] ${
+                nodes.length === 0
+                  ? 'cursor-not-allowed opacity-60'
+                  : 'hover:border-rose-500/50 hover:text-rose-200'
+              }`}
+            >
+              Reset layout
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (nodes.length === 0) return;
+                handleAutoLayout();
+              }}
+              disabled={nodes.length === 0}
+              className={`rounded-full border border-slate-700/70 bg-slate-900/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-200 shadow-lg shadow-black/40 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/70 md:min-w-[168px] ${
+                nodes.length === 0
+                  ? 'cursor-not-allowed opacity-60'
+                  : 'hover:border-rose-500/50 hover:text-rose-200'
+              }`}
+            >
+              Auto arrange
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveLayout}
+              disabled={nodes.length === 0 || savingLayout || !layoutDirty}
+              className={`rounded-full border border-rose-500/60 bg-rose-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-rose-100 shadow-lg shadow-black/40 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/70 md:min-w-[168px] ${
+                nodes.length === 0 || savingLayout || !layoutDirty
+                  ? 'cursor-not-allowed opacity-60'
+                  : 'hover:border-rose-400/80 hover:text-rose-50'
+              }`}
+            >
+              {savingLayout ? 'Saving…' : 'Save layout'}
+            </button>
+          </div>
+          {saveFeedback ? (
+            <div
+              className={`rounded-full px-4 py-1 text-xs font-medium uppercase tracking-[0.2em] ${
+                saveFeedback.type === 'success'
+                  ? 'bg-emerald-500/20 text-emerald-200'
+                  : 'bg-rose-500/10 text-rose-200'
+              }`}
+            >
+              {saveFeedback.message}
+            </div>
+          ) : null}
+        </div>
 
         <ReactFlowProvider>
           <ReactFlow
@@ -794,33 +974,34 @@ export default function AutomationsFlow() {
             style={{ width: '100%', height: '100%' }}
           >
             <Background color="rgba(148, 163, 184, 0.2)" gap={28} />
-            <MiniMap
-              className="!bg-slate-900/90 !text-slate-200"
-              pannable
-              zoomable
-              maskColor="rgba(15, 23, 42, 0.92)"
-              nodeColor={(node) => {
-                const status = (node.data as AutomationNodeData | undefined)?.status;
-                if (status === 'offline') return '#f87171';
-                if (status === 'under-watch') return '#facc15';
-                return '#34d399';
-              }}
-              nodeStrokeColor="rgba(148, 163, 184, 0.4)"
-            />
-            <Controls className="!border-none !bg-transparent">
-              <ControlButton
-                onClick={() => {
-                  if (nodes.length === 0) return;
-                  handleAutoLayout();
-                }}
-                title="Rearrange nodes"
-                className="!bg-slate-900/90 !text-slate-100 hover:!bg-rose-500/20 hover:!text-rose-100"
-              >
-                Auto layout
-              </ControlButton>
-            </Controls>
+            {controlsVisible ? (
+              <>
+                <MiniMap
+                  className="!bg-slate-900/90 !text-slate-200"
+                  pannable
+                  zoomable
+                  maskColor="rgba(15, 23, 42, 0.92)"
+                  nodeColor={(node) => {
+                    const status = (node.data as AutomationNodeData | undefined)?.status;
+                    if (status === 'offline') return '#f87171';
+                    if (status === 'under-watch') return '#facc15';
+                    return '#34d399';
+                  }}
+                  nodeStrokeColor="rgba(148, 163, 184, 0.4)"
+                />
+                <Controls className="!border-none !bg-transparent" />
+              </>
+            ) : null}
           </ReactFlow>
         </ReactFlowProvider>
+
+        <button
+          type="button"
+          onClick={() => setControlsVisible((prev) => !prev)}
+          className="absolute bottom-5 left-5 z-30 rounded-full border border-slate-700/70 bg-slate-900/80 px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-200 shadow-lg shadow-black/40 transition hover:border-rose-500/40 hover:text-rose-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/70"
+        >
+          {controlsVisible ? 'Hide controls' : 'Show controls'}
+        </button>
 
         {!loading && nodes.length === 0 && !error ? (
           <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-400">
