@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Calendar,
   Edit2,
@@ -13,17 +13,8 @@ import {
   X,
 } from 'lucide-react';
 
-interface Client {
-  id: string;
-  name: string;
-  startDate: string;
-  notes: string;
-  tiktokHandle: string;
-  tiktokEmail: string;
-  tiktokPassword: string;
-  createdAt: string;
-  updatedAt: string;
-}
+import type { Client } from '../types/client';
+import { formatClientDate, loadClients, persistClients } from '../utils/clientStorage';
 
 interface ClientFormValues {
   name: string;
@@ -34,8 +25,6 @@ interface ClientFormValues {
   tiktokPassword: string;
 }
 
-const STORAGE_KEY = 'smartops-clients';
-
 const emptyForm: ClientFormValues = {
   name: '',
   startDate: '',
@@ -45,61 +34,23 @@ const emptyForm: ClientFormValues = {
   tiktokPassword: '',
 };
 
-function formatDateLabel(value: string) {
-  if (!value) return 'Not set';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
-}
-
-function loadStoredClients(): Client[] {
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as Client[];
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-    return parsed.map((client) => ({
-      ...client,
-      createdAt: client.createdAt ?? new Date().toISOString(),
-      updatedAt: client.updatedAt ?? new Date().toISOString(),
-    }));
-  } catch (error) {
-    console.error('Failed to parse stored clients', error);
-    return [];
-  }
-}
-
-function saveClients(clients: Client[]) {
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(clients));
-  } catch (error) {
-    console.error('Failed to persist clients', error);
-  }
-}
-
 export default function Clients() {
-  const [clients, setClients] = useState<Client[]>(() => {
-    if (typeof window === 'undefined') {
-      return [];
-    }
-    return loadStoredClients();
-  });
+  const [clients, setClients] = useState<Client[]>(() => loadClients());
   const [searchTerm, setSearchTerm] = useState('');
   const [formValues, setFormValues] = useState<ClientFormValues>(emptyForm);
   const [editingClientId, setEditingClientId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const isFirstPersist = useRef(true);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
       return;
     }
-    saveClients(clients);
+    if (isFirstPersist.current) {
+      isFirstPersist.current = false;
+      return;
+    }
+    persistClients(clients);
   }, [clients]);
 
   const filteredClients = useMemo(() => {
@@ -239,7 +190,7 @@ export default function Clients() {
             <div>
               <p className="text-sm font-medium text-gray-500">Earliest partnership</p>
               <p className="mt-2 text-lg font-semibold text-gray-900">
-                {earliestClient ? formatDateLabel(earliestClient.startDate) : '—'}
+                {earliestClient ? formatClientDate(earliestClient.startDate) : '—'}
               </p>
               {earliestClient ? (
                 <p className="text-sm text-gray-500">{earliestClient.name}</p>
@@ -256,7 +207,7 @@ export default function Clients() {
             <div>
               <p className="text-sm font-medium text-gray-500">Last updated</p>
               <p className="mt-2 text-lg font-semibold text-gray-900">
-                {latestUpdate ? formatDateLabel(latestUpdate.updatedAt) : '—'}
+                {latestUpdate ? formatClientDate(latestUpdate.updatedAt) : '—'}
               </p>
               {latestUpdate ? (
                 <p className="text-sm text-gray-500">{latestUpdate.name}</p>
@@ -320,7 +271,7 @@ export default function Clients() {
                     <div>
                       <h3 className="text-lg font-semibold text-gray-900">{client.name}</h3>
                       <p className="mt-1 text-sm text-gray-500">
-                        Partner since {client.startDate ? formatDateLabel(client.startDate) : '—'}
+                        Partner since {client.startDate ? formatClientDate(client.startDate) : '—'}
                       </p>
                     </div>
                     <div className="flex gap-2">
@@ -350,7 +301,7 @@ export default function Clients() {
                         Start date
                       </dt>
                       <dd className="mt-1 text-sm text-gray-800">
-                        {client.startDate ? formatDateLabel(client.startDate) : 'Not provided'}
+                        {client.startDate ? formatClientDate(client.startDate) : 'Not provided'}
                       </dd>
                     </div>
 
