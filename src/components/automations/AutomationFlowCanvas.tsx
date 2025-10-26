@@ -1,33 +1,7 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import {
-  Activity,
-  AlertTriangle,
-  Bot,
-  CalendarClock,
-  CheckCircle2,
-  Cpu,
-  Layers3,
-  LineChart,
-  Loader2,
-  PlugZap,
-  PlayCircle,
-  ShieldCheck,
-  Sparkles,
-  Workflow,
-} from 'lucide-react';
+import { AlertTriangle, ArrowRight, CheckCircle2, Info, Loader2, PlugZap } from 'lucide-react';
 import type { AutomationNode, AutomationRunState } from '../../types/automations';
-
-const nodeIcon: Record<string, ComponentType<{ className?: string }>> = {
-  CCC: Sparkles,
-  VPE: PlayCircle,
-  USP: CalendarClock,
-  UMS: Layers3,
-  AL: ShieldCheck,
-  AR: Workflow,
-  WAU: Activity,
-  MAO: LineChart,
-};
 
 const statusAccent: Record<AutomationNode['status'], { badge: string; dot: string; border: string }> = {
   operational: {
@@ -47,8 +21,13 @@ const statusAccent: Record<AutomationNode['status'], { badge: string; dot: strin
   },
 };
 
+interface AutomationFlowNode extends AutomationNode {
+  emoji?: string;
+  tooltip?: string;
+}
+
 interface AutomationFlowCanvasProps {
-  nodes: AutomationNode[];
+  nodes: AutomationFlowNode[];
   runStates: Record<string, AutomationRunState>;
   onRun: (code: string) => Promise<void> | void;
 }
@@ -200,7 +179,7 @@ export default function AutomationFlowCanvas({ nodes, runStates, onRun }: Automa
   }, [nodes]);
 
   return (
-    <div className="relative overflow-hidden rounded-3xl border border-slate-800 bg-slate-950 p-10 text-white shadow-2xl">
+    <div className="relative overflow-visible rounded-3xl border border-slate-800 bg-slate-950 p-10 text-white shadow-2xl">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(148,163,255,0.18),_transparent_55%)]" />
       <svg className="pointer-events-none absolute inset-0 hidden text-slate-700/60 lg:block" aria-hidden="true">
         {paths.map((path) => (
@@ -209,136 +188,145 @@ export default function AutomationFlowCanvas({ nodes, runStates, onRun }: Automa
       </svg>
       <div ref={containerRef} className="relative z-10 grid gap-10 md:grid-cols-2 xl:grid-cols-4">
         {orderedNodes.map((node, index) => {
-          const Icon = nodeIcon[node.code] ?? Bot;
           const accent = statusAccent[node.status];
           const runState = runStates[node.code] ?? { status: 'idle' };
           const result = runState.result;
           const isRunning = runState.status === 'running';
+          const showConnector = index !== orderedNodes.length - 1;
 
           return (
-            <motion.div
-              key={node.code}
-              ref={(element) => {
-                nodeRefs.current[node.code] = element;
-              }}
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.05, duration: 0.3 }}
-              className={`relative flex flex-col gap-4 rounded-2xl border bg-slate-900/80 p-6 backdrop-blur ${
-                accent?.border ?? 'border-slate-800'
-              }`}
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <div className="flex items-center gap-2 text-sm text-slate-300">
-                    <span className="inline-flex items-center gap-2 rounded-full border border-slate-700/70 bg-slate-900/70 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-slate-300">
-                      {node.code}
-                    </span>
-                    <span className="flex items-center gap-1 text-xs text-slate-400">
-                      <span className={`h-2 w-2 rounded-full ${node.connected ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-                      {node.connected ? 'n8n linked' : 'Awaiting n8n URL'}
-                    </span>
-                  </div>
-                  <h3 className="mt-3 text-xl font-semibold text-white">{node.title}</h3>
-                  <p className="text-sm text-slate-300/90">{node.description}</p>
-                </div>
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-800 text-slate-200 shadow-inner">
-                  <Icon className="h-6 w-6" />
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300/80">
-                <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 font-medium ${accent?.badge ?? ''}`}>
-                  <span className={`h-2 w-2 rounded-full ${accent?.dot ?? 'bg-slate-500'}`} />
-                  {node.statusLabel}
-                </span>
-                <span className="inline-flex items-center gap-2 rounded-full border border-slate-700/70 px-3 py-1 text-slate-400">
-                  <Cpu className="h-3.5 w-3.5" />
-                  {node.step}
-                </span>
-              </div>
-
-              <div className="rounded-2xl border border-slate-800/60 bg-slate-900/80 p-4 text-xs text-slate-300/90">
-                <p className="font-semibold uppercase tracking-wide text-slate-400">Function</p>
-                <p className="mt-1 leading-relaxed text-slate-200">{node.function}</p>
-                <p className="mt-3 font-semibold uppercase tracking-wide text-slate-400">AI Assist</p>
-                <p className="mt-1 leading-relaxed text-slate-200">{node.aiAssist}</p>
-              </div>
-
-              <div className="rounded-2xl border border-slate-800/60 bg-slate-900/80 p-4 text-xs text-slate-300/90">
-                <div className="flex items-center justify-between">
-                  <p className="font-semibold uppercase tracking-wide text-slate-400">n8n Webhook</p>
-                  {node.webhookUrl ? (
-                    <a
-                      href={node.webhookUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-300 transition hover:text-white"
-                    >
-                      <PlugZap className="h-3.5 w-3.5" /> View
-                    </a>
-                  ) : (
-                    <span className="text-[11px] text-amber-300">Configure in .env</span>
-                  )}
-                </div>
-                <p className="mt-1 break-all text-[11px] text-slate-400/80">
-                  {node.webhookUrl ?? `${node.webhookPath} → waiting for N8N_BASE_URL`}
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => void onRun(node.code)}
-                disabled={isRunning}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-500/90 px-4 py-2 text-sm font-semibold text-slate-900 shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-emerald-500/50"
+            <Fragment key={node.code}>
+              <motion.div
+                ref={(element) => {
+                  nodeRefs.current[node.code] = element;
+                }}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.05, duration: 0.3 }}
+                className={`relative flex flex-col gap-5 rounded-2xl border bg-slate-900/80 p-6 pr-16 backdrop-blur ${
+                  accent?.border ?? 'border-slate-800'
+                }`}
               >
-                {isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlayCircle className="h-4 w-4" />}
-                {isRunning ? 'Running in n8n…' : 'Run in n8n'}
-              </button>
-
-              <div className="rounded-2xl border border-slate-800/60 bg-slate-900/80 p-4 text-xs">
-                <div className="flex flex-wrap items-center justify-between gap-2 text-slate-300">
-                  <div className="flex items-center gap-2">
-                    {runState.status === 'success' ? (
-                      <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                    ) : runState.status === 'error' ? (
-                      <AlertTriangle className="h-4 w-4 text-amber-400" />
-                    ) : (
-                      <Loader2 className="h-4 w-4 animate-spin text-slate-500" />
-                    )}
-                    <span className="font-semibold uppercase tracking-wide text-slate-400">
-                      Last Run
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <span className="text-3xl" aria-hidden="true" title={node.tooltip ?? node.function}>
+                      {node.emoji ?? '🤖'}
                     </span>
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{node.step}</p>
+                      <h3 className="mt-1 text-xl font-semibold text-white">{node.title}</h3>
+                      <p className="mt-1 text-sm text-slate-300/90">{node.description}</p>
+                    </div>
                   </div>
-                  <span className="rounded-full border border-slate-700/70 px-2 py-0.5 text-[11px] text-slate-400">
-                    {formatTimestamp(result?.finishedAt)}
+                  <button
+                    type="button"
+                    className="hidden rounded-full border border-slate-700/70 bg-slate-900/70 p-1.5 text-slate-300 transition hover:text-white lg:flex"
+                    title={node.tooltip ?? node.function}
+                    aria-label={`About ${node.title}`}
+                  >
+                    <Info className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="rounded-2xl border border-slate-800/60 bg-slate-900/80 p-4 text-sm text-slate-200">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Why it matters</p>
+                  <p className="mt-1 leading-relaxed text-slate-200">{node.function}</p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300/80">
+                  <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 font-medium ${accent?.badge ?? ''}`}>
+                    <span className={`h-2 w-2 rounded-full ${accent?.dot ?? 'bg-slate-500'}`} />
+                    {node.statusLabel}
+                  </span>
+                  <span className="inline-flex items-center gap-2 rounded-full border border-slate-700/70 px-3 py-1 text-slate-400">
+                    {node.connected ? 'Connected to n8n' : 'Awaiting n8n URL'}
                   </span>
                 </div>
-                <div className="mt-2 grid grid-cols-2 gap-3 text-[11px] text-slate-400">
-                  <div>
-                    <p className="uppercase tracking-wide text-slate-500">HTTP</p>
-                    <p className="mt-1 text-slate-200">
-                      {result?.httpStatus != null ? result.httpStatus : '—'}
-                    </p>
+
+                <div className="rounded-2xl border border-slate-800/60 bg-slate-900/80 p-4 text-xs text-slate-300/90">
+                  <div className="flex items-center justify-between">
+                    <p className="font-semibold uppercase tracking-wide text-slate-400">n8n Webhook</p>
+                    {node.webhookUrl ? (
+                      <a
+                        href={node.webhookUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-300 transition hover:text-white"
+                      >
+                        <PlugZap className="h-3.5 w-3.5" /> View
+                      </a>
+                    ) : (
+                      <span className="text-[11px] text-amber-300">Configure in .env</span>
+                    )}
                   </div>
-                  <div>
-                    <p className="uppercase tracking-wide text-slate-500">Duration</p>
-                    <p className="mt-1 text-slate-200">{formatDuration(result?.durationMs ?? NaN)}</p>
-                  </div>
-                </div>
-                <div className="mt-3">
-                  <p className="uppercase tracking-wide text-slate-500">Response</p>
-                  <pre className="mt-1 max-h-28 overflow-auto rounded-xl border border-slate-800/60 bg-slate-950/70 p-3 text-[11px] leading-relaxed text-slate-200">
-                    <code>{formatResponsePreview(result?.responseBody)}</code>
-                  </pre>
-                </div>
-                {result?.error && (
-                  <p className="mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
-                    {result.error}
+                  <p className="mt-1 break-all text-[11px] text-slate-400/80">
+                    {node.webhookUrl ?? `${node.webhookPath} → waiting for N8N_BASE_URL`}
                   </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => void onRun(node.code)}
+                  disabled={isRunning}
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-500/90 px-4 py-2 text-sm font-semibold text-slate-900 shadow-lg shadow-emerald-500/20 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-emerald-500/50"
+                >
+                  {isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+                  {isRunning ? 'Running…' : 'Run Node'}
+                </button>
+
+                <div className="rounded-2xl border border-slate-800/60 bg-slate-900/80 p-4 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-slate-300">
+                    <div className="flex items-center gap-2">
+                      {runState.status === 'success' ? (
+                        <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                      ) : runState.status === 'error' ? (
+                        <AlertTriangle className="h-4 w-4 text-amber-400" />
+                      ) : (
+                        <Loader2 className="h-4 w-4 animate-spin text-slate-500" />
+                      )}
+                      <span className="font-semibold uppercase tracking-wide text-slate-400">Last Run</span>
+                    </div>
+                    <span className="rounded-full border border-slate-700/70 px-2 py-0.5 text-[11px] text-slate-400">
+                      {formatTimestamp(result?.finishedAt)}
+                    </span>
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-3 text-[11px] text-slate-400">
+                    <div>
+                      <p className="uppercase tracking-wide text-slate-500">HTTP</p>
+                      <p className="mt-1 text-slate-200">{result?.httpStatus != null ? result.httpStatus : '—'}</p>
+                    </div>
+                    <div>
+                      <p className="uppercase tracking-wide text-slate-500">Duration</p>
+                      <p className="mt-1 text-slate-200">{formatDuration(result?.durationMs ?? NaN)}</p>
+                    </div>
+                  </div>
+                  <div className="mt-3">
+                    <p className="uppercase tracking-wide text-slate-500">Response</p>
+                    <pre className="mt-1 max-h-28 overflow-auto rounded-xl border border-slate-800/60 bg-slate-950/70 p-3 text-[11px] leading-relaxed text-slate-200">
+                      <code>{formatResponsePreview(result?.responseBody)}</code>
+                    </pre>
+                  </div>
+                  {result?.error && (
+                    <p className="mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
+                      {result.error}
+                    </p>
+                  )}
+                </div>
+
+                {showConnector && (
+                  <div className="pointer-events-none absolute right-4 top-1/2 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-slate-700/70 bg-slate-900/80 text-slate-300 lg:flex">
+                    <ArrowRight className="h-5 w-5" />
+                  </div>
                 )}
-              </div>
-            </motion.div>
+
+                {showConnector && (
+                  <div className="flex items-center gap-2 text-xs text-slate-400 lg:hidden">
+                    <ArrowRight className="h-4 w-4" />
+                    <span>Next step</span>
+                  </div>
+                )}
+              </motion.div>
+            </Fragment>
           );
         })}
       </div>
