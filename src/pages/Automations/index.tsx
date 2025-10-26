@@ -263,7 +263,7 @@ export default function AutomationsFlow() {
         </div>
       </motion.header>
 
-      <div className="relative min-h-[560px] overflow-hidden rounded-3xl border border-slate-800/80 bg-slate-950/50">
+      <div className="relative h-[640px] w-full overflow-hidden rounded-3xl border border-slate-800/80 bg-slate-950/50 sm:h-[560px]">
         {loading ? (
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/80 backdrop-blur">
             <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
@@ -293,6 +293,7 @@ export default function AutomationsFlow() {
             nodesDraggable
             nodeTypes={nodeTypes}
             proOptions={{ hideAttribution: true }}
+            style={{ width: '100%', height: '100%' }}
           >
             <Background color="rgba(148, 163, 184, 0.2)" gap={28} />
             <Controls className="!border-none !bg-transparent" />
