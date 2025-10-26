@@ -783,7 +783,8 @@ export default function AutomationsFlow() {
             onNodeDragStop={handleNodeDragStop}
             onInit={handleInit}
             fitView
-            panOnScroll
+            panOnScroll={false}
+            panOnDrag
             zoomOnScroll
             minZoom={0.3}
             maxZoom={1.6}
