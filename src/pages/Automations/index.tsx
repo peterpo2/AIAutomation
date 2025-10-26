@@ -1,10 +1,31 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import {
+  Background,
+  Controls,
+  MarkerType,
+  Node,
+  NodeChange,
+  ReactFlow,
+  ReactFlowInstance,
+  ReactFlowProvider,
+  applyNodeChanges,
+  useEdgesState,
+  useNodesState,
+  type Edge,
+  type NodeProps,
+} from 'reactflow';
+import 'reactflow/dist/style.css';
+
 import { Loader2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { apiFetch } from '../../lib/apiClient';
 import type { AutomationNode } from '../../types/automations';
+import type { AutomationNodeData } from '../../components/automations/AutomationNodeCard';
+import '../../styles/reactflow.css';
+
+const LazyAutomationNode = lazy(() => import('../../components/automations/AutomationNodeCard'));
 
 interface AutomationOverviewItem extends AutomationNode {
   shortDescription: string;
@@ -12,23 +33,156 @@ interface AutomationOverviewItem extends AutomationNode {
 
 const simplifyDescription = (description: string) => {
   if (!description) return '';
-  if (description.length <= 160) return description;
-  return `${description.slice(0, 157)}…`;
+  if (description.length <= 180) return description;
+  return `${description.slice(0, 177)}…`;
 };
 
-export default function AutomationsOverview() {
+const statusMap: Record<AutomationNode['status'], AutomationNodeData['status']> = {
+  operational: 'operational',
+  monitor: 'under-watch',
+  upcoming: 'offline',
+};
+
+const nodeSpacingX = 360;
+const nodeStartY = 80;
+
+type AutomationFlowNode = Node<AutomationNodeData>;
+
+type AutomationNodeTypeRenderer = (props: NodeProps<AutomationNodeData>) => JSX.Element;
+
+const NodeFallback = () => (
+  <div className="w-[280px] rounded-3xl border border-slate-800/80 bg-slate-900/60 p-6 text-center text-sm text-slate-400">
+    Loading…
+  </div>
+);
+
+export default function AutomationsFlow() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [automations, setAutomations] = useState<AutomationOverviewItem[]>([]);
+  const [nodes, setNodes] = useNodesState<AutomationNodeData>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
+  const [initialFitDone, setInitialFitDone] = useState(false);
+
+  const nodeTypes = useMemo(() => {
+    const renderer: AutomationNodeTypeRenderer = (props) => (
+      <Suspense fallback={<NodeFallback />}>
+        <LazyAutomationNode {...props} />
+      </Suspense>
+    );
+
+    return { automation: renderer };
+  }, []);
+
+  const updateEdgesFromNodes = useCallback(
+    (nodeList: AutomationFlowNode[]) => {
+      if (!nodeList || nodeList.length <= 1) {
+        setEdges([]);
+        return;
+      }
+
+      const sorted = [...nodeList].sort((a, b) => {
+        if (a.position.x === b.position.x) {
+          return a.position.y - b.position.y;
+        }
+        return a.position.x - b.position.x;
+      });
+
+      const linked: Edge[] = sorted.slice(0, -1).map((node, index) => {
+        const next = sorted[index + 1];
+        return {
+          id: `${node.id}__${next.id}`,
+          source: node.id,
+          target: next.id,
+          animated: true,
+          type: 'smoothstep',
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            color: 'rgba(248, 113, 113, 0.85)',
+          },
+          style: {
+            stroke: 'rgba(248, 113, 113, 0.8)',
+            strokeWidth: 2.5,
+          },
+        } satisfies Edge;
+      });
+
+      setEdges(linked);
+    },
+    [setEdges],
+  );
+
+  const handleOpenDetails = useCallback(
+    (id: string) => {
+      navigate(`/automations/${id}`);
+    },
+    [navigate],
+  );
+
+  const buildNodes = useCallback(
+    (items: AutomationOverviewItem[]): AutomationFlowNode[] =>
+      items.map((automation, index) => ({
+        id: automation.code,
+        type: 'automation',
+        position: { x: index * nodeSpacingX, y: nodeStartY },
+        draggable: true,
+        data: {
+          title: automation.title,
+          shortDescription: automation.shortDescription,
+          status: statusMap[automation.status] ?? 'operational',
+          statusLabel: automation.statusLabel,
+          connected: automation.connected,
+          onOpen: handleOpenDetails,
+        },
+      })),
+    [handleOpenDetails],
+  );
+
+  const refreshNodes = useCallback(
+    (items: AutomationOverviewItem[]) => {
+      const nextNodes = buildNodes(items);
+      setNodes(nextNodes);
+      updateEdgesFromNodes(nextNodes);
+      setInitialFitDone(false);
+    },
+    [buildNodes, setNodes, updateEdgesFromNodes],
+  );
+
+  const handleNodesChange = useCallback(
+    (changes: NodeChange<AutomationNodeData>[]) => {
+      setNodes((current) => {
+        const updated = applyNodeChanges(changes, current);
+        updateEdgesFromNodes(updated as AutomationFlowNode[]);
+        return updated;
+      });
+    },
+    [setNodes, updateEdgesFromNodes],
+  );
+
+  const handleNodeDragStop = useCallback(
+    (_event: unknown, node: AutomationFlowNode) => {
+      setNodes((current) => {
+        const updated = current.map((item) =>
+          item.id === node.id ? { ...item, position: node.position } : item,
+        );
+        updateEdgesFromNodes(updated as AutomationFlowNode[]);
+        return updated;
+      });
+    },
+    [setNodes, updateEdgesFromNodes],
+  );
+
+  const handleInit = useCallback((instance: ReactFlowInstance) => {
+    setReactFlowInstance(instance);
+  }, []);
 
   useEffect(() => {
     let active = true;
 
     const fetchAutomations = async () => {
       if (!user) {
-        setAutomations([]);
         setError(null);
         setLoading(false);
         return;
@@ -61,13 +215,13 @@ export default function AutomationsOverview() {
           }))
           .sort((a, b) => a.sequence - b.sequence);
 
-        setAutomations(filtered);
+        refreshNodes(filtered);
       } catch (err) {
         if (!active) return;
         const message = err instanceof Error ? err.message : 'Unable to load automations.';
         console.error('Failed to load automations', err);
         setError(message);
-        setAutomations([]);
+        refreshNodes([]);
       } finally {
         if (active) {
           setLoading(false);
@@ -80,7 +234,16 @@ export default function AutomationsOverview() {
     return () => {
       active = false;
     };
-  }, [user]);
+  }, [user, refreshNodes]);
+
+  useEffect(() => {
+    if (!reactFlowInstance || nodes.length === 0 || initialFitDone) {
+      return;
+    }
+
+    reactFlowInstance.fitView({ padding: 0.35, duration: 600, minZoom: 0.4 });
+    setInitialFitDone(true);
+  }, [reactFlowInstance, nodes, initialFitDone]);
 
   return (
     <div className="space-y-10 text-slate-100">
@@ -92,68 +255,56 @@ export default function AutomationsOverview() {
       >
         <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Automations</p>
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight text-white">Automations Overview</h1>
+          <h1 className="text-3xl font-semibold tracking-tight text-white">Workflow Canvas</h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-400">
-            Review every SmartOps automation at a glance. Select a workflow to open its full details and manage the
-            connection.
+            Visualize each SmartOps automation as an interconnected pipeline. Drag nodes to explore different
+            sequences and open any node to manage its details.
           </p>
         </div>
       </motion.header>
 
-      {loading ? (
-        <div className="flex items-center justify-center rounded-3xl border border-slate-800 bg-slate-950/60 py-20">
-          <Loader2 className="h-6 w-6 animate-spin text-slate-500" />
-        </div>
-      ) : error ? (
-        <div className="rounded-3xl border border-rose-900/80 bg-rose-950/40 p-6 text-sm text-rose-200">
-          {error}
-        </div>
-      ) : automations.length === 0 ? (
-        <div className="rounded-3xl border border-slate-800 bg-slate-950/60 p-6 text-sm text-slate-400">
-          No automations found.
-        </div>
-      ) : (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.1, duration: 0.35 }}
-          className="grid gap-6 md:grid-cols-2 xl:grid-cols-3"
-        >
-          {automations.map((automation, index) => (
-            <motion.button
-              key={automation.code}
-              type="button"
-              onClick={() => navigate(`/automations/${automation.code}`)}
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.12 + index * 0.04, duration: 0.3 }}
-              whileHover={{ y: -6 }}
-              whileTap={{ scale: 0.98 }}
-              className="group flex h-full flex-col items-start rounded-3xl border border-slate-800 bg-slate-950/60 p-6 text-left shadow-lg shadow-black/30 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/60"
-            >
-              <div className="space-y-3">
-                <h2 className="text-lg font-semibold text-white">{automation.title}</h2>
-                <p className="text-sm text-slate-400 group-hover:text-slate-300 transition-colors">
-                  {automation.shortDescription || 'This automation is ready for configuration.'}
-                </p>
-              </div>
-              <div className="mt-6 flex w-full items-center justify-between text-xs font-medium">
-                <span
-                  className={`inline-flex items-center gap-2 rounded-full px-3 py-1 transition-colors ${
-                    automation.connected
-                      ? 'bg-emerald-500/15 text-emerald-300'
-                      : 'bg-slate-800 text-slate-300'
-                  }`}
-                >
-                  <span className="h-2 w-2 rounded-full bg-current" />
-                  {automation.connected ? 'Connected' : 'Not Connected'}
-                </span>
-                <span className="text-sm text-red-300 transition group-hover:text-red-200">View Details →</span>
-              </div>
-            </motion.button>
-          ))}
-        </motion.div>
-      )}
+      <div className="relative min-h-[560px] overflow-hidden rounded-3xl border border-slate-800/80 bg-slate-950/50">
+        {loading ? (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/80 backdrop-blur">
+            <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+          </div>
+        ) : null}
+
+        {error ? (
+          <div className="absolute inset-x-0 top-0 z-30 m-6 rounded-2xl border border-rose-800/70 bg-rose-950/60 p-4 text-sm text-rose-200">
+            {error}
+          </div>
+        ) : null}
+
+        <ReactFlowProvider>
+          <ReactFlow
+            className="reactflow-dark"
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={handleNodesChange}
+            onEdgesChange={onEdgesChange}
+            onNodeDragStop={handleNodeDragStop}
+            onInit={handleInit}
+            fitView
+            panOnScroll
+            zoomOnScroll
+            minZoom={0.3}
+            maxZoom={1.6}
+            nodesDraggable
+            nodeTypes={nodeTypes}
+            proOptions={{ hideAttribution: true }}
+          >
+            <Background color="rgba(148, 163, 184, 0.2)" gap={28} />
+            <Controls className="!border-none !bg-transparent" />
+          </ReactFlow>
+        </ReactFlowProvider>
+
+        {!loading && nodes.length === 0 && !error ? (
+          <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-400">
+            No automations found.
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
