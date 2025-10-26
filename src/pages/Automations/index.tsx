@@ -382,7 +382,6 @@ export default function AutomationsFlow() {
   const buildNodes = useCallback(
     (items: AutomationOverviewItem[]): AutomationFlowNode[] =>
       items.map((automation, index) => {
-        const executionState = executionStates[automation.code] ?? { status: 'idle' as const };
         const basePosition = automation.position ?? {
           x: index * nodeSpacingX,
           y: nodeStartY,
@@ -402,12 +401,12 @@ export default function AutomationsFlow() {
             onOpen: handleOpenDetails,
             onExecute: handleExecuteAutomation,
             canExecute: Boolean(automation.webhookUrl || (n8nBaseUrl && automation.webhookPath)),
-            executionStatus: executionState.status,
-            executionMessage: executionState.message ?? null,
+            executionStatus: 'idle',
+            executionMessage: null,
           },
         } satisfies AutomationFlowNode;
       }),
-    [executionStates, handleExecuteAutomation, handleOpenDetails, n8nBaseUrl],
+    [handleExecuteAutomation, handleOpenDetails, n8nBaseUrl],
   );
 
   const refreshNodes = useCallback(
