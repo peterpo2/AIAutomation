@@ -106,9 +106,8 @@ export async function fetchClients(): Promise<Client[]> {
       return cachedClients;
     }
 
-    throw new Error(
-      `Failed to fetch clients: ${error instanceof Error ? error.message : 'Unknown error'}`,
-    );
+    console.error('Failed to fetch clients from Supabase:', error);
+    return [];
   }
 }
 

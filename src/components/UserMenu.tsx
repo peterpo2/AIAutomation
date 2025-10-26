@@ -10,6 +10,7 @@ import {
   Crown,
   LayoutDashboard,
   UserCog,
+  Users2,
   type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -133,6 +134,7 @@ export default function UserMenu() {
 
           <nav className="py-1">
             <MenuItem to="/dashboard" icon={LayoutDashboard} label="Dashboard" onClick={() => setOpen(false)} />
+            <MenuItem to="/clients" icon={Users2} label="Clients" onClick={() => setOpen(false)} />
             <MenuItem to="/permissions" icon={Shield} label="Permissions" onClick={() => setOpen(false)} />
             <MenuItem to="/settings" icon={Settings} label="Workspace settings" onClick={() => setOpen(false)} />
             {isManager && (
