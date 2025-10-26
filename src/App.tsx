@@ -14,6 +14,7 @@ import Settings from './pages/Settings';
 import Permissions from './pages/Permissions';
 import UserManagement from './pages/UserManagement';
 import Automations from './pages/Automations';
+import Clients from './pages/Clients';
 
 function App() {
   useEffect(() => {
@@ -40,6 +41,7 @@ function App() {
                     <Route path="/uploads" element={<Uploads />} />
                     <Route path="/reports" element={<Reports />} />
                     <Route path="/automations" element={<Automations />} />
+                    <Route path="/clients" element={<Clients />} />
                     <Route path="/settings" element={<Settings />} />
                     <Route
                       path="/user-management"
