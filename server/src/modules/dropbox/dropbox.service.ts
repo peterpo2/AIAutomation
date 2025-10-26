@@ -1,4 +1,4 @@
-import { Dropbox } from 'dropbox';
+import { Dropbox, type files } from 'dropbox';
 import axios, { AxiosError } from 'axios';
 import { prisma } from '../auth/prisma.client.js';
 import { notificationsService } from '../notifications/notifications.service.js';
@@ -108,7 +108,7 @@ export const dropboxService = {
         hasMore = resp.result.has_more;
 
         for (const entry of resp.result.entries) {
-          if (entry['.tag'] !== 'file') continue;
+          if (!isFileEntry(entry)) continue;
 
           // Optional: only accept common video extensions
           const lower = entry.name.toLowerCase();
@@ -126,7 +126,7 @@ export const dropboxService = {
               fileName: entry.name,
               folderPath: entry.path_display ?? '',
               dropboxId: entry.id,
-              size: BigInt((entry as any).size ?? 0), // Dropbox types vary; guard with any for size
+              size: BigInt(getEntrySize(entry)),
               status: 'pending',
             },
           });
@@ -178,3 +178,11 @@ export const dropboxService = {
   /** Testing/ops helper */
   _clearTokenCache: clearTokenCache,
 };
+
+function isFileEntry(entry: files.MetadataReference): entry is files.FileMetadataReference {
+  return entry['.tag'] === 'file';
+}
+
+function getEntrySize(entry: files.FileMetadataReference): number {
+  return typeof entry.size === 'number' ? entry.size : 0;
+}

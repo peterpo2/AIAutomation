@@ -23,7 +23,7 @@ if (missingVars.length > 0) {
   if (import.meta.env.DEV) {
     console.warn(initializationError.message);
   }
-} else {
+} else if (supabaseUrl && supabaseAnonKey) {
   try {
     supabaseClient = createClient(supabaseUrl, supabaseAnonKey);
   } catch (error) {
@@ -34,6 +34,11 @@ if (missingVars.length > 0) {
     if (import.meta.env.DEV) {
       console.error('Supabase initialization error:', initializationError);
     }
+  }
+} else {
+  initializationError = new Error('Supabase environment variables are not defined.');
+  if (import.meta.env.DEV) {
+    console.warn(initializationError.message);
   }
 }
 

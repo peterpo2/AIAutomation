@@ -1,11 +1,82 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ComponentType } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Bell, Calendar, FileText, NotebookPen, Users2, Video } from 'lucide-react';
+import {
+  Bell,
+  Calendar,
+  FileText,
+  Folder,
+  Home,
+  NotebookPen,
+  Settings,
+  Shield,
+  Upload,
+  Users2,
+  Video,
+  Workflow,
+} from 'lucide-react';
 
 import { fetchClients } from '../lib/clientsApi';
 import type { Client } from '../types/client';
 import { formatClientDate, subscribeToClientChanges } from '../utils/clientStorage';
+
+type WorkspaceNavItem = {
+  to: string;
+  title: string;
+  description: string;
+  icon: ComponentType<{ className?: string }>;
+};
+
+const workspaceNavItems: WorkspaceNavItem[] = [
+  {
+    to: '/dashboard',
+    title: 'Dashboard',
+    description: 'Monitor the daily pulse and alerts.',
+    icon: Home,
+  },
+  {
+    to: '/dropbox',
+    title: 'Dropbox',
+    description: 'Sync incoming assets from creators.',
+    icon: Folder,
+  },
+  {
+    to: '/uploads',
+    title: 'Uploads',
+    description: 'Review and publish ready-to-go edits.',
+    icon: Upload,
+  },
+  {
+    to: '/reports',
+    title: 'Reports',
+    description: 'Track performance metrics over time.',
+    icon: FileText,
+  },
+  {
+    to: '/automations',
+    title: 'Automations',
+    description: 'Tune the SmartOps automation graph.',
+    icon: Workflow,
+  },
+  {
+    to: '/clients',
+    title: 'Clients',
+    description: 'Store handles, credentials, and notes.',
+    icon: Users2,
+  },
+  {
+    to: '/settings',
+    title: 'Settings',
+    description: 'Adjust workspace preferences.',
+    icon: Settings,
+  },
+  {
+    to: '/permissions',
+    title: 'Permissions',
+    description: 'Review access levels and roles.',
+    icon: Shield,
+  },
+];
 
 export default function Dashboard() {
   const today = new Date();
@@ -121,6 +192,35 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
+      <motion.section
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1 }}
+        className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4"
+      >
+        {workspaceNavItems.map((item, index) => (
+          <motion.div
+            key={item.to}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.15 + index * 0.05 }}
+          >
+            <Link
+              to={item.to}
+              className="flex h-full items-start justify-between rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition hover:border-red-200 hover:shadow-md"
+            >
+              <div className="space-y-2">
+                <p className="text-sm font-semibold text-gray-900">{item.title}</p>
+                <p className="text-xs text-gray-500">{item.description}</p>
+              </div>
+              <span className="rounded-full bg-red-50 p-3 text-red-500">
+                <item.icon className="h-5 w-5" />
+              </span>
+            </Link>
+          </motion.div>
+        ))}
+      </motion.section>
+
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.4fr_1fr]">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
