@@ -31,7 +31,6 @@ const focusOptions: FocusOption[] = [
 ];
 
 interface EnrichedAutomationNode extends AutomationNode {
-  emoji?: string;
   tooltip?: string;
 }
 
@@ -42,82 +41,73 @@ const automationCopy: Record<
     description: string;
     function: string;
     tooltip: string;
-    emoji: string;
     order: number;
     step: string;
   }
 > = {
   CCC: {
-    title: 'Content Planner',
-    description: 'Creates a weekly content calendar using AI ideas tied to your brand keywords.',
-    function: 'Keeps the team aligned on what to create next.',
-    tooltip: 'Strategize campaigns and themes before production kicks off.',
-    emoji: '🧠',
+    title: 'AI Content Planner',
+    description: 'Builds a full social media calendar with AI-generated post ideas, hooks, and visuals.',
+    function: 'Keeps your content flow consistent and aligned with campaigns.',
+    tooltip: 'Plan channel content with AI support and campaign alignment.',
     order: 1,
-    step: 'Step 1 · Plan',
+    step: 'Stage 1 · Plan',
   },
   VPE: {
-    title: 'Video Editor',
-    description: 'Automatically edits new footage, adds captions, and preps final cuts.',
-    function: 'Delivers ready-to-post clips without manual editing.',
-    tooltip: 'Automate the repetitive edits so the team can focus on storytelling.',
-    emoji: '🎬',
+    title: 'Smart Video Editor',
+    description: 'Auto-edits raw footage, adds captions, and exports platform-ready clips.',
+    function: 'Saves editors time and ensures every video follows brand style.',
+    tooltip: 'Deliver polished clips without manual editing marathons.',
     order: 2,
-    step: 'Step 2 · Produce',
+    step: 'Stage 2 · Edit',
   },
   USP: {
-    title: 'Post Scheduler',
-    description: 'Finds the best posting windows based on engagement trends.',
-    function: 'Maximizes reach by launching content at peak times.',
-    tooltip: 'Uses past performance to build a publishing runway automatically.',
-    emoji: '⏰',
+    title: 'Engagement Scheduler',
+    description: 'Calculates the best posting times using audience engagement patterns.',
+    function: 'Publishes when your followers are most active — no guesswork needed.',
+    tooltip: 'Schedule posts for the moments your community shows up.',
     order: 3,
-    step: 'Step 3 · Schedule',
+    step: 'Stage 3 · Schedule',
   },
   UMS: {
-    title: 'Media Manager',
-    description: 'Stores and tags approved assets for quick reuse across campaigns.',
-    function: 'Keeps creative files organized and searchable for the team.',
-    tooltip: 'Maintain a living library of clips, thumbnails, and copy.',
-    emoji: '💾',
+    title: 'Asset Library Manager',
+    description: 'Organizes all approved images and videos into searchable, reusable folders.',
+    function: 'Keeps teams from re-uploading or losing key creative assets.',
+    tooltip: 'Maintain an always-ready library of finished visuals.',
     order: 4,
-    step: 'Step 4 · Organize',
+    step: 'Stage 4 · Organize',
   },
   AL: {
-    title: 'Account Connector',
-    description: 'Links TikTok, Instagram, and YouTube accounts securely via OAuth.',
-    function: 'Ensures every automation posts to the right brand channels.',
-    tooltip: 'Refreshes tokens so campaigns stay authenticated.',
-    emoji: '🔐',
+    title: 'Account Sync Hub',
+    description: 'Connects TikTok, Instagram, and YouTube through secure OAuth tokens.',
+    function: 'Keeps brand channels linked and prevents failed uploads.',
+    tooltip: 'Keep every channel authenticated and ready for launch.',
     order: 5,
-    step: 'Step 5 · Connect',
+    step: 'Stage 5 · Connect',
   },
   AR: {
-    title: 'Automation Rules',
-    description: 'Defines publishing triggers, guardrails, and approval logic.',
-    function: 'Protects brand quality with smart automation governance.',
-    tooltip: 'Configure when content goes live and who signs off.',
-    emoji: '⚙️',
+    title: 'Workflow Guardrails',
+    description: 'Sets publishing triggers, content approval steps, and safety checks.',
+    function: 'Protects brand reputation and keeps automation under control.',
+    tooltip: 'Define approvals and safeguards before content ships.',
     order: 6,
-    step: 'Step 6 · Govern',
+    step: 'Stage 6 · Safeguard',
   },
   WAU: {
-    title: 'Weekly Auto Uploader',
-    description: 'Pushes approved videos to every connected account each Monday.',
-    function: 'Eliminates manual uploads when campaigns launch.',
-    tooltip: 'Guarantees launches stay on schedule across platforms.',
-    emoji: '📡',
+    title: 'Auto Publisher',
+    description: 'Pushes approved posts and videos to every connected account on schedule.',
+    function: 'Removes manual posting so campaigns go live automatically.',
+    tooltip: 'Launch every deliverable without late-night uploads.',
     order: 7,
-    step: 'Step 7 · Launch',
+    step: 'Stage 7 · Launch',
   },
   MAO: {
-    title: 'Performance Tracker',
-    description: 'Generates analytics recaps with the week’s top-performing posts.',
-    function: 'Provides clear feedback to steer the next sprint.',
-    tooltip: 'Review outcomes and reallocate budget with confidence.',
-    emoji: '📊',
+    title: 'Performance Insights',
+    description: 'Collects weekly analytics and ranks your top-performing social posts.',
+    function: 'Shows what content drives engagement so you can repeat success.',
+    tooltip: 'Spot standout work and double down on what resonates.',
     order: 8,
-    step: 'Step 8 · Analyze',
+    step: 'Stage 8 · Review',
   },
 };
 
@@ -219,7 +209,6 @@ export default function Automations() {
             description: overrides?.description ?? node.description,
             function: overrides?.function ?? node.function,
             step: overrides?.step ?? node.step,
-            emoji: overrides?.emoji ?? '🤖',
             tooltip: overrides?.tooltip ?? node.function,
             sequence: overrides?.order ?? node.sequence,
           };
@@ -443,8 +432,15 @@ export default function Automations() {
       .slice(0, 5);
   }, [runStates]);
 
+  const resolveAutomationTitle = useCallback(
+    (code: string | null | undefined) => nodes.find((node) => node.code === code)?.title ?? 'Automation',
+    [nodes],
+  );
+
   const connectedCount = nodes.filter((node) => node.connected).length;
   const missingN8n = nodes.length > 0 && connectedCount === 0;
+  const latestRun = recentRuns[0];
+  const latestRunTitle = latestRun ? resolveAutomationTitle(latestRun.code) : null;
 
   return (
     <div className="space-y-10 text-slate-900 dark:text-slate-100">
@@ -486,8 +482,8 @@ export default function Automations() {
                   {recentRuns[0] ? formatTimestamp(recentRuns[0].finishedAt) : 'Awaiting runs'}
                 </p>
                 <p className="mt-1 text-sm text-white/70">
-                  {recentRuns[0]
-                    ? `Workflow ${recentRuns[0].code} ${recentRuns[0].ok ? 'responded successfully' : 'returned an error'}.`
+                  {latestRun
+                    ? `${latestRunTitle} ${latestRun.ok ? 'ran successfully' : 'needs attention.'}`
                     : 'Run an automation to see live results.'}
                 </p>
               </div>
