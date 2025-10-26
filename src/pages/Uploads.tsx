@@ -8,8 +8,38 @@ import type { DropboxFile } from '../lib/dropbox';
 import { buildVideoMetadataFromDropboxFile, extractDropboxPathInfo } from '../utils/dropboxMetadata';
 
 const LOCAL_QUEUE_KEY = 'upload_queue_local_drafts';
+const DEFAULT_LOCAL_DRAFT_TTL_DAYS = 60;
+
+const resolveDraftTtlDays = () => {
+  const candidates = [
+    import.meta.env.VITE_UPLOAD_DRAFT_TTL_DAYS,
+    import.meta.env.VITE_LOCAL_DRAFT_TTL_DAYS,
+  ];
+
+  for (const candidate of candidates) {
+    const parsed = Number(candidate);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+
+  return DEFAULT_LOCAL_DRAFT_TTL_DAYS;
+};
+
+const LOCAL_DRAFT_TTL_MS = resolveDraftTtlDays() * 24 * 60 * 60 * 1000;
 
 type VideoInput = Partial<VideoMetadata> | VideoMetadata;
+
+type StoredDraft = {
+  video: VideoMetadata;
+  queuedAt: number;
+};
+
+const isStoredDraft = (value: unknown): value is StoredDraft => {
+  if (!value || typeof value !== 'object') return false;
+  const draft = value as Record<string, unknown>;
+  return typeof draft.video === 'object' && draft.video !== null && typeof draft.queuedAt !== 'undefined';
+};
 
 const sanitizeVideoMetadata = (video: VideoInput): VideoMetadata => {
   const rawSize = typeof video.file_size === 'string' ? Number(video.file_size) : video.file_size;
@@ -75,23 +105,48 @@ const mergeVideoLists = (...lists: VideoInput[][]): VideoMetadata[] => {
   return Array.from(merged.values());
 };
 
-const readLocalDrafts = (): VideoMetadata[] => {
+const getDraftKey = (video: VideoMetadata): string => {
+  if (video.dropbox_id) {
+    return `dropbox:${video.dropbox_id}`;
+  }
+  if (video.file_path) {
+    return `path:${video.file_path}`;
+  }
+  return `name:${video.file_name ?? 'untitled'}:${video.created_at ?? ''}`;
+};
+
+const readStoredDrafts = (): StoredDraft[] => {
   if (typeof window === 'undefined') return [];
   try {
     const stored = localStorage.getItem(LOCAL_QUEUE_KEY);
     if (!stored) return [];
-    const parsed = JSON.parse(stored) as VideoInput[];
+    const parsed = JSON.parse(stored);
     if (!Array.isArray(parsed)) return [];
-    return mergeVideoLists(parsed);
+
+    const now = Date.now();
+    return parsed.reduce<StoredDraft[]>((accumulator, entry) => {
+      if (isStoredDraft(entry)) {
+        const queuedAt = Number(entry.queuedAt);
+        accumulator.push({
+          video: sanitizeVideoMetadata(entry.video),
+          queuedAt: Number.isFinite(queuedAt) ? queuedAt : now,
+        });
+      } else if (entry && typeof entry === 'object') {
+        accumulator.push({
+          video: sanitizeVideoMetadata(entry as VideoInput),
+          queuedAt: now,
+        });
+      }
+      return accumulator;
+    }, []);
   } catch (error) {
     console.error('Failed to read locally queued uploads', error);
     return [];
   }
 };
 
-const persistLocalDrafts = (videos: VideoMetadata[]) => {
+const writeStoredDrafts = (drafts: StoredDraft[]) => {
   if (typeof window === 'undefined') return;
-  const drafts = videos.filter((video) => !video.id);
   if (drafts.length === 0) {
     localStorage.removeItem(LOCAL_QUEUE_KEY);
     return;
@@ -101,6 +156,51 @@ const persistLocalDrafts = (videos: VideoMetadata[]) => {
   } catch (error) {
     console.error('Failed to persist locally queued uploads', error);
   }
+};
+
+const readLocalDrafts = (): VideoMetadata[] => {
+  const drafts = readStoredDrafts();
+  if (drafts.length === 0) {
+    return [];
+  }
+
+  const now = Date.now();
+  const filtered = drafts.filter((draft) => now - draft.queuedAt <= LOCAL_DRAFT_TTL_MS);
+
+  if (filtered.length !== drafts.length) {
+    writeStoredDrafts(filtered);
+  }
+
+  return filtered.map((draft) => draft.video);
+};
+
+const persistLocalDrafts = (videos: VideoMetadata[]) => {
+  if (typeof window === 'undefined') return;
+  const drafts = videos.filter((video) => !video.id);
+  if (drafts.length === 0) {
+    localStorage.removeItem(LOCAL_QUEUE_KEY);
+    return;
+  }
+
+  const now = Date.now();
+  const existingDrafts = readStoredDrafts().filter((draft) => now - draft.queuedAt <= LOCAL_DRAFT_TTL_MS);
+  const draftMap = new Map<string, StoredDraft>();
+
+  existingDrafts.forEach((draft) => {
+    draftMap.set(getDraftKey(draft.video), draft);
+  });
+
+  drafts.forEach((video) => {
+    const key = getDraftKey(video);
+    const sanitized = sanitizeVideoMetadata(video);
+    const existing = draftMap.get(key);
+    draftMap.set(key, {
+      video: sanitized,
+      queuedAt: existing?.queuedAt ?? now,
+    });
+  });
+
+  writeStoredDrafts(Array.from(draftMap.values()));
 };
 
 const formatFileSize = (size?: number | null) => {
