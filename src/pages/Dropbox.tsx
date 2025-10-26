@@ -10,6 +10,8 @@ import {
   Check,
   Loader2,
   RefreshCcw,
+  PlayCircle,
+  X,
 } from 'lucide-react';
 import {
   getAuthUrl,
@@ -17,6 +19,7 @@ import {
   isDropboxConnected,
   listFiles,
   getThumbnail,
+  getTemporaryLink,
   DropboxFile,
   type DropboxCacheOptions,
   connectUsingRefreshToken,
@@ -25,6 +28,10 @@ import {
 import { createUpload, fetchUploads } from '../lib/uploadsApi';
 import type { VideoMetadata } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import {
+  buildVideoMetadataFromDropboxFile,
+  extractDropboxPathInfo,
+} from '../utils/dropboxMetadata';
 
 export default function DropboxPage() {
   const [searchParams] = useSearchParams();
@@ -34,15 +41,20 @@ export default function DropboxPage() {
   const [files, setFiles] = useState<DropboxFile[]>([]);
   const [pathStack, setPathStack] = useState<string[]>(['']);
   const [loading, setLoading] = useState(false);
-  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+  const [selectedFiles, setSelectedFiles] = useState<Map<string, DropboxFile>>(new Map());
   const [thumbnails, setThumbnails] = useState<Map<string, string>>(new Map());
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [existingDropboxIds, setExistingDropboxIds] = useState<Set<string>>(new Set());
   const [uploading, setUploading] = useState(false);
   const [uploadFeedback, setUploadFeedback] = useState<string | null>(null);
+  const [previewFile, setPreviewFile] = useState<DropboxFile | null>(null);
+  const [previewLink, setPreviewLink] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   const envConnectAttemptedRef = useRef(false);
+  const previewCacheRef = useRef<Map<string, string>>(new Map());
 
   const dropboxConfigured = useMemo(() => {
     const key = import.meta.env.VITE_DROPBOX_APP_KEY ?? import.meta.env.DROPBOX_APP_KEY;
@@ -62,10 +74,16 @@ export default function DropboxPage() {
       setErrorMessage(null);
       try {
         const fileList = await listFiles(path, options);
-        setFiles(fileList);
+        const sortedFiles = [...fileList].sort((a, b) => {
+          if (a.isFolder !== b.isFolder) {
+            return a.isFolder ? -1 : 1;
+          }
+          return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+        });
+        setFiles(sortedFiles);
         setThumbnails((prev: Map<string, string>) => {
           const next = new Map<string, string>();
-          fileList.forEach((file) => {
+          sortedFiles.forEach((file) => {
             const existing = prev.get(file.path);
             if (existing) {
               next.set(file.path, existing);
@@ -74,7 +92,7 @@ export default function DropboxPage() {
           return next;
         });
 
-        const videoFiles = fileList.filter((file) => !file.isFolder && isVideoFile(file.name));
+        const videoFiles = sortedFiles.filter((file) => !file.isFolder && isVideoFile(file.name));
         if (videoFiles.length > 0) {
           const results = await Promise.all(
             videoFiles.map(async (file) => {
@@ -202,13 +220,17 @@ export default function DropboxPage() {
     void loadFiles(currentPath, { forceRefresh: true });
   }, [currentPath, loadFiles]);
 
-  const toggleFileSelection = (filePath: string) => {
-    setSelectedFiles((prev: Set<string>) => {
-      const updated = new Set(prev);
-      if (updated.has(filePath)) {
-        updated.delete(filePath);
+  const toggleFileSelection = (file: DropboxFile) => {
+    if (file.isFolder || !isVideoFile(file.name)) {
+      return;
+    }
+
+    setSelectedFiles((prev: Map<string, DropboxFile>) => {
+      const updated = new Map(prev);
+      if (updated.has(file.path)) {
+        updated.delete(file.path);
       } else {
-        updated.add(filePath);
+        updated.set(file.path, file);
       }
       return updated;
     });
@@ -216,20 +238,13 @@ export default function DropboxPage() {
 
   const buildVideoMetadata = useCallback(
     (file: DropboxFile): VideoMetadata => ({
-      file_path: file.path,
-      file_name: file.name,
-      file_size: file.size,
-      dropbox_id: file.id,
-      status: 'pending',
-      brand: '',
-      caption: '',
-      category: '',
+      ...buildVideoMetadataFromDropboxFile(file),
     }),
     [],
   );
 
   const uploadSelected = useCallback(async () => {
-    const selected = files.filter((f: DropboxFile) => selectedFiles.has(f.path) && !f.isFolder);
+    const selected = Array.from(selectedFiles.values()).filter((file) => !file.isFolder);
     if (selected.length === 0) {
       return;
     }
@@ -237,6 +252,7 @@ export default function DropboxPage() {
     if (!user) {
       localStorage.setItem('selected_videos', JSON.stringify(selected));
       setUploadFeedback('Videos queued locally. Sign in to sync them with Supabase.');
+      setSelectedFiles(new Map());
       navigate('/uploads');
       return;
     }
@@ -268,23 +284,34 @@ export default function DropboxPage() {
       }
 
       setExistingDropboxIds(alreadyUploaded);
-      setSelectedFiles(new Set());
+      setSelectedFiles(new Map());
 
+      const summaryParts: string[] = [];
+      if (createdCount > 0) {
+        summaryParts.push(`Uploaded ${createdCount} video${createdCount === 1 ? '' : 's'} to Supabase.`);
+      }
+      if (skippedCount > 0) {
+        summaryParts.push(`${skippedCount} duplicate${skippedCount === 1 ? '' : 's'} skipped.`);
+      }
       if (failures.length > 0) {
-        setUploadFeedback(
-          `Uploaded ${createdCount} video${createdCount === 1 ? '' : 's'} to Supabase. Failed: ${failures.join(', ')}.`,
-        );
-      } else if (createdCount > 0) {
-        setUploadFeedback(`Uploaded ${createdCount} video${createdCount === 1 ? '' : 's'} to Supabase.`);
-        navigate('/uploads');
-      } else if (skippedCount > 0) {
+        summaryParts.push(`Failed to upload: ${failures.join(', ')}.`);
+      }
+
+      if (failures.length === 0 && createdCount === 0 && skippedCount > 0) {
         setUploadFeedback('All selected videos already exist in Supabase.');
+      } else if (summaryParts.length > 0) {
+        setUploadFeedback(summaryParts.join(' '));
+      } else {
+        setUploadFeedback('No videos were uploaded.');
+      }
+
+      if (createdCount > 0 && failures.length === 0) {
+        navigate('/uploads');
       }
     } finally {
       setUploading(false);
     }
   }, [
-    files,
     selectedFiles,
     user,
     existingDropboxIds,
@@ -292,14 +319,16 @@ export default function DropboxPage() {
     buildVideoMetadata,
   ]);
 
+  const selectedCount = selectedFiles.size;
+
   const uploadButtonLabel = useMemo(() => {
-    if (selectedFiles.size === 0) {
+    if (selectedCount === 0) {
       return 'Upload Selected';
     }
 
-    const suffix = selectedFiles.size === 1 ? 'video' : 'videos';
-    return user ? `Upload ${selectedFiles.size} ${suffix}` : `Queue ${selectedFiles.size} ${suffix}`;
-  }, [selectedFiles.size, user]);
+    const suffix = selectedCount === 1 ? 'video' : 'videos';
+    return user ? `Upload ${selectedCount} ${suffix}` : `Queue ${selectedCount} ${suffix}`;
+  }, [selectedCount, user]);
 
   useEffect(() => {
     if (!user) {
@@ -319,6 +348,119 @@ export default function DropboxPage() {
 
     return (
       <div className="bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded-lg">{uploadFeedback}</div>
+    );
+  };
+
+  const openPreview = (file: DropboxFile) => {
+    setPreviewError(null);
+    setPreviewLink(null);
+    setPreviewFile(file);
+  };
+
+  const closePreview = useCallback(() => {
+    setPreviewFile(null);
+    setPreviewLink(null);
+    setPreviewError(null);
+    setPreviewLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (!previewFile) {
+      return;
+    }
+
+    const cached = previewCacheRef.current.get(previewFile.path);
+    if (cached) {
+      setPreviewLink(cached);
+      setPreviewLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setPreviewLoading(true);
+
+    (async () => {
+      try {
+        const link = await getTemporaryLink(previewFile.path);
+        if (cancelled) {
+          return;
+        }
+
+        if (link) {
+          previewCacheRef.current.set(previewFile.path, link);
+          setPreviewLink(link);
+        } else {
+          setPreviewError('Unable to load preview for this video.');
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error('Failed to load Dropbox preview link', error);
+          setPreviewError('Unable to load preview for this video.');
+        }
+      } finally {
+        if (!cancelled) {
+          setPreviewLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [previewFile]);
+
+  const renderPreviewModal = () => {
+    if (!previewFile) {
+      return null;
+    }
+
+    const { client, nestedPath } = extractDropboxPathInfo(previewFile.path);
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="relative w-full max-w-4xl rounded-2xl bg-white p-6 shadow-2xl"
+        >
+          <button
+            type="button"
+            onClick={closePreview}
+            className="absolute right-4 top-4 rounded-full bg-gray-100 p-2 text-gray-600 transition hover:bg-gray-200"
+            aria-label="Close preview"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          <div className="space-y-3">
+            <div>
+              <p className="text-sm font-medium text-gray-500">
+                {client || nestedPath ? `${client}${nestedPath ? ` / ${nestedPath}` : ''}` : 'Root'}
+              </p>
+              <h2 className="text-2xl font-semibold text-gray-800">{previewFile.name}</h2>
+            </div>
+            <div className="aspect-video overflow-hidden rounded-xl bg-black">
+              {previewLoading && (
+                <div className="flex h-full w-full items-center justify-center text-white">
+                  <Loader2 className="h-10 w-10 animate-spin" />
+                </div>
+              )}
+              {!previewLoading && previewError && (
+                <div className="flex h-full w-full items-center justify-center bg-gray-900 text-center text-sm text-red-300">
+                  {previewError}
+                </div>
+              )}
+              {!previewLoading && !previewError && previewLink && (
+                <video
+                  controls
+                  src={previewLink}
+                  className="h-full w-full object-contain"
+                  preload="metadata"
+                />
+              )}
+            </div>
+          </div>
+        </motion.div>
+      </div>
     );
   };
 
@@ -365,6 +507,7 @@ export default function DropboxPage() {
         </div>
       )}
       {renderUploadFeedback()}
+      {renderPreviewModal()}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-800">Dropbox Files</h1>
@@ -390,7 +533,7 @@ export default function DropboxPage() {
             <RefreshCcw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </button>
-          {selectedFiles.size > 0 && (
+          {selectedCount > 0 && (
             <motion.button
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
@@ -448,7 +591,7 @@ export default function DropboxPage() {
                 if (file.isFolder) {
                   openFolder(file.path);
                 } else if (isVideoFile(file.name)) {
-                  toggleFileSelection(file.path);
+                  toggleFileSelection(file);
                 }
               }}
               className={`bg-white rounded-xl shadow-md hover:shadow-xl transition-all cursor-pointer overflow-hidden ${
@@ -476,6 +619,19 @@ export default function DropboxPage() {
                   <div className="absolute bottom-2 left-2 bg-green-500/90 text-white text-xs font-semibold px-2 py-1 rounded-full shadow-md">
                     Uploaded
                   </div>
+                )}
+                {!file.isFolder && isVideoFile(file.name) && (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openPreview(file);
+                    }}
+                    className="absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-md bg-white/90 px-2 py-1 text-xs font-semibold text-gray-700 shadow hover:bg-white"
+                  >
+                    <PlayCircle className="h-4 w-4" />
+                    Preview
+                  </button>
                 )}
               </div>
               <div className="p-3">

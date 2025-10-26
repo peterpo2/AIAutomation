@@ -5,6 +5,7 @@ import { VIDEO_STATUSES, type VideoMetadata, type VideoStatus } from '../lib/sup
 import { fetchUploads, createUpload, updateUpload, deleteUpload } from '../lib/uploadsApi';
 import { useAuth } from '../context/AuthContext';
 import type { DropboxFile } from '../lib/dropbox';
+import { buildVideoMetadataFromDropboxFile } from '../utils/dropboxMetadata';
 
 const LOCAL_QUEUE_KEY = 'upload_queue_local_drafts';
 
@@ -157,18 +158,7 @@ export default function Uploads() {
     if (stored) {
       try {
         const selected: DropboxFile[] = JSON.parse(stored);
-        const newVideos = selected.map((file) =>
-          sanitizeVideoMetadata({
-            file_path: file.path,
-            file_name: file.name,
-            file_size: file.size,
-            dropbox_id: file.id,
-            brand: '',
-            caption: '',
-            category: '',
-            status: 'pending',
-          }),
-        );
+        const newVideos = selected.map((file) => sanitizeVideoMetadata(buildVideoMetadataFromDropboxFile(file)));
         setVideos((prev) => mergeVideoLists(prev, newVideos));
       } catch (error) {
         console.error('Failed to process selected Dropbox videos', error);
