@@ -44,7 +44,12 @@ export function persistClients(clients: Client[]) {
   }
 
   try {
-    window.localStorage.setItem(CLIENTS_STORAGE_KEY, JSON.stringify(clients));
+    const serialized = JSON.stringify(clients);
+    const existing = window.localStorage.getItem(CLIENTS_STORAGE_KEY);
+    if (existing === serialized) {
+      return;
+    }
+    window.localStorage.setItem(CLIENTS_STORAGE_KEY, serialized);
     window.dispatchEvent(new CustomEvent(CLIENTS_UPDATED_EVENT));
   } catch (error) {
     console.error('Failed to persist clients', error);

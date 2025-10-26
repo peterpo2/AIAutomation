@@ -3,8 +3,9 @@ import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Bell, Calendar, FileText, NotebookPen, Users2, Video } from 'lucide-react';
 
+import { fetchClients } from '../lib/clientsApi';
 import type { Client } from '../types/client';
-import { formatClientDate, loadClients, subscribeToClientChanges } from '../utils/clientStorage';
+import { formatClientDate, subscribeToClientChanges } from '../utils/clientStorage';
 
 export default function Dashboard() {
   const today = new Date();
@@ -41,15 +42,48 @@ export default function Dashboard() {
     { action: 'Weekly report generated', time: '1 day ago', icon: FileText },
   ];
 
-  const [clients, setClients] = useState<Client[]>(() => loadClients());
+  const [clients, setClients] = useState<Client[]>([]);
+  const [clientsLoaded, setClientsLoaded] = useState(false);
+  const [clientsError, setClientsError] = useState<string | null>(null);
 
   useEffect(() => {
-    setClients(loadClients());
+    let isMounted = true;
+
+    const load = async () => {
+      try {
+        const data = await fetchClients();
+        if (!isMounted) return;
+        setClients(data);
+        setClientsError(null);
+      } catch (error) {
+        if (!isMounted) return;
+        setClientsError(error instanceof Error ? error.message : 'Failed to load clients.');
+      } finally {
+        if (isMounted) {
+          setClientsLoaded(true);
+        }
+      }
+    };
+
+    load();
+
     const unsubscribe = subscribeToClientChanges(() => {
-      setClients(loadClients());
+      fetchClients()
+        .then((data) => {
+          if (!isMounted) return;
+          setClients(data);
+          setClientsError(null);
+        })
+        .catch((error) => {
+          if (!isMounted) return;
+          setClientsError(error instanceof Error ? error.message : 'Failed to load clients.');
+        });
     });
 
-    return unsubscribe;
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
   }, []);
 
   const totalClients = clients.length;
@@ -227,7 +261,15 @@ export default function Dashboard() {
         </div>
 
         <div className="mt-6">
-          {recentClients.length === 0 ? (
+          {clientsError ? (
+            <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
+              {clientsError}
+            </div>
+          ) : !clientsLoaded ? (
+            <div className="rounded-xl border border-gray-100 bg-gray-50 p-6 text-center text-sm text-gray-500">
+              Loading clients…
+            </div>
+          ) : recentClients.length === 0 ? (
             <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-6 text-center">
               <p className="text-sm font-medium text-gray-700">No clients added yet.</p>
               <p className="mt-1 text-xs text-gray-500">
