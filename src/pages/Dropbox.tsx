@@ -22,10 +22,14 @@ import {
   connectUsingRefreshToken,
   hasEnvironmentDropboxCredentials,
 } from '../lib/dropbox';
+import { createUpload, fetchUploads } from '../lib/uploadsApi';
+import type { VideoMetadata } from '../lib/supabase';
+import { useAuth } from '../context/AuthContext';
 
 export default function DropboxPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [connected, setConnected] = useState(isDropboxConnected());
   const [files, setFiles] = useState<DropboxFile[]>([]);
   const [pathStack, setPathStack] = useState<string[]>(['']);
@@ -34,6 +38,9 @@ export default function DropboxPage() {
   const [thumbnails, setThumbnails] = useState<Map<string, string>>(new Map());
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
+  const [existingDropboxIds, setExistingDropboxIds] = useState<Set<string>>(new Set());
+  const [uploading, setUploading] = useState(false);
+  const [uploadFeedback, setUploadFeedback] = useState<string | null>(null);
 
   const envConnectAttemptedRef = useRef(false);
 
@@ -145,6 +152,28 @@ export default function DropboxPage() {
 
   const currentPath = useMemo(() => pathStack[pathStack.length - 1] ?? '', [pathStack]);
 
+  const loadExistingUploads = useCallback(async () => {
+    if (!user) {
+      setExistingDropboxIds(new Set());
+      return;
+    }
+
+    try {
+      const token = await user.getIdToken();
+      const uploads = await fetchUploads(token, user.uid);
+      const dropboxIds = uploads
+        .map((upload) => upload.dropbox_id)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0);
+      setExistingDropboxIds(new Set(dropboxIds));
+    } catch (error) {
+      console.error('Failed to load existing uploads for Dropbox browser', error);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    void loadExistingUploads();
+  }, [loadExistingUploads]);
+
   const handleConnect = async () => {
     try {
       if (!dropboxConfigured) {
@@ -185,10 +214,112 @@ export default function DropboxPage() {
     });
   };
 
-  const saveToQueue = () => {
-    const selected = files.filter((f: DropboxFile) => selectedFiles.has(f.path));
-    localStorage.setItem('selected_videos', JSON.stringify(selected));
-    navigate('/uploads');
+  const buildVideoMetadata = useCallback(
+    (file: DropboxFile): VideoMetadata => ({
+      file_path: file.path,
+      file_name: file.name,
+      file_size: file.size,
+      dropbox_id: file.id,
+      status: 'pending',
+      brand: '',
+      caption: '',
+      category: '',
+    }),
+    [],
+  );
+
+  const uploadSelected = useCallback(async () => {
+    const selected = files.filter((f: DropboxFile) => selectedFiles.has(f.path) && !f.isFolder);
+    if (selected.length === 0) {
+      return;
+    }
+
+    if (!user) {
+      localStorage.setItem('selected_videos', JSON.stringify(selected));
+      setUploadFeedback('Videos queued locally. Sign in to sync them with Supabase.');
+      navigate('/uploads');
+      return;
+    }
+
+    setUploading(true);
+    setUploadFeedback(null);
+    const alreadyUploaded = new Set(existingDropboxIds);
+    let createdCount = 0;
+    let skippedCount = 0;
+    const failures: string[] = [];
+
+    try {
+      const token = await user.getIdToken();
+
+      for (const file of selected) {
+        if (alreadyUploaded.has(file.id)) {
+          skippedCount += 1;
+          continue;
+        }
+
+        try {
+          await createUpload(token, buildVideoMetadata(file), user.uid);
+          createdCount += 1;
+          alreadyUploaded.add(file.id);
+        } catch (error) {
+          failures.push(file.name);
+          console.error('Failed to upload Dropbox file to Supabase', error);
+        }
+      }
+
+      setExistingDropboxIds(alreadyUploaded);
+      setSelectedFiles(new Set());
+
+      if (failures.length > 0) {
+        setUploadFeedback(
+          `Uploaded ${createdCount} video${createdCount === 1 ? '' : 's'} to Supabase. Failed: ${failures.join(', ')}.`,
+        );
+      } else if (createdCount > 0) {
+        setUploadFeedback(`Uploaded ${createdCount} video${createdCount === 1 ? '' : 's'} to Supabase.`);
+        navigate('/uploads');
+      } else if (skippedCount > 0) {
+        setUploadFeedback('All selected videos already exist in Supabase.');
+      }
+    } finally {
+      setUploading(false);
+    }
+  }, [
+    files,
+    selectedFiles,
+    user,
+    existingDropboxIds,
+    navigate,
+    buildVideoMetadata,
+  ]);
+
+  const uploadButtonLabel = useMemo(() => {
+    if (selectedFiles.size === 0) {
+      return 'Upload Selected';
+    }
+
+    const suffix = selectedFiles.size === 1 ? 'video' : 'videos';
+    return user ? `Upload ${selectedFiles.size} ${suffix}` : `Queue ${selectedFiles.size} ${suffix}`;
+  }, [selectedFiles.size, user]);
+
+  useEffect(() => {
+    if (!user) {
+      setUploadFeedback(null);
+    }
+  }, [user]);
+
+  const isAlreadyUploaded = useCallback(
+    (file: DropboxFile) => existingDropboxIds.has(file.id),
+    [existingDropboxIds],
+  );
+
+  const renderUploadFeedback = () => {
+    if (!uploadFeedback) {
+      return null;
+    }
+
+    return (
+      <div className="bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded-lg">{uploadFeedback}</div>
+    );
   };
 
   if (!connected) {
@@ -233,10 +364,16 @@ export default function DropboxPage() {
           {errorMessage}
         </div>
       )}
+      {renderUploadFeedback()}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-800">Dropbox Files</h1>
           <p className="text-gray-600 mt-1">Browse and select videos</p>
+          {!user && (
+            <p className="text-sm text-amber-600 mt-2">
+              Sign in to upload Dropbox videos directly to Supabase. Without signing in, selections will be saved locally.
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-3">
           {lastUpdated && (
@@ -257,10 +394,18 @@ export default function DropboxPage() {
             <motion.button
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
-              onClick={saveToQueue}
-              className="bg-red-500 text-white px-6 py-3 rounded-lg font-medium hover:bg-red-600 transition-colors shadow-lg shadow-red-500/30"
+              onClick={uploadSelected}
+              disabled={uploading}
+              className="bg-red-500 text-white px-6 py-3 rounded-lg font-medium hover:bg-red-600 transition-colors shadow-lg shadow-red-500/30 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              Add to Queue ({selectedFiles.size})
+              {uploading ? (
+                <span className="flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Uploading...
+                </span>
+              ) : (
+                uploadButtonLabel
+              )}
             </motion.button>
           )}
         </div>
@@ -325,6 +470,11 @@ export default function DropboxPage() {
                 {selectedFiles.has(file.path) && (
                   <div className="absolute top-2 right-2 bg-red-500 rounded-full p-1">
                     <Check className="w-4 h-4 text-white" />
+                  </div>
+                )}
+                {!file.isFolder && isAlreadyUploaded(file) && (
+                  <div className="absolute bottom-2 left-2 bg-green-500/90 text-white text-xs font-semibold px-2 py-1 rounded-full shadow-md">
+                    Uploaded
                   </div>
                 )}
               </div>
