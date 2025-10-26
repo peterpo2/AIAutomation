@@ -16,7 +16,7 @@ import { errorHandler } from './modules/auth/error.middleware.js';
 import { captionGeneratorRouter } from './modules/caption-generator/caption-generator.controller.js';
 import { bootstrapWorkspaceUsers } from './modules/auth/user.bootstrap.js';
 import { automationsRouter } from './modules/automations/automations.controller.js';
-import { assertStartupStatus, runStartupChecks } from './startup/startup-checks.js';
+import { assertStartupStatus, runStartupChecks, StartupStatus } from './startup/startup-checks.js';
 
 dotenv.config();
 
@@ -57,13 +57,34 @@ app.use(errorHandler);
 const server = createServer(app);
 
 async function bootstrap() {
+  let status: StartupStatus;
   try {
-    const status = await runStartupChecks();
-    assertStartupStatus(status);
-    console.log('All startup checks passed.');
+    status = await runStartupChecks();
   } catch (error) {
-    console.error('Startup checks failed. Aborting launch.', error);
+    console.error('Startup checks threw an unexpected error. Aborting launch.', error);
     process.exit(1);
+    return;
+  }
+
+  try {
+    assertStartupStatus(status, ['postgres']);
+  } catch (error) {
+    console.error('Critical startup checks failed. Aborting launch.', error);
+    process.exit(1);
+    return;
+  }
+
+  const optionalFailures = Object.entries(status)
+    .filter(([service, ok]) => service !== 'postgres' && !ok)
+    .map(([service]) => service);
+
+  if (optionalFailures.length > 0) {
+    const failureList = optionalFailures.join(', ');
+    console.warn(
+      `Optional services failed to initialize: ${failureList}. Continuing startup, but dependent features may be degraded.`,
+    );
+  } else {
+    console.log('All startup checks passed.');
   }
 
   void bootstrapWorkspaceUsers().then((result) => {

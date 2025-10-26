@@ -73,18 +73,21 @@ export async function runStartupChecks(): Promise<StartupStatus> {
       console.error('Supabase connection failed.', error);
     }
   } else {
-    console.error('Supabase credentials are not configured.');
+    console.warn('Supabase credentials are not configured.');
   }
 
   return status;
 }
 
-export function assertStartupStatus(status: StartupStatus) {
-  const failed = Object.entries(status)
-    .filter(([, ok]) => !ok)
-    .map(([key]) => key);
+const DEFAULT_CRITICAL_SERVICES: (keyof StartupStatus)[] = ['supabase', 'firebase', 'postgres', 'dropbox'];
 
-  if (failed.length > 0) {
-    throw new Error(`Startup checks failed for: ${failed.join(', ')}`);
+export function assertStartupStatus(
+  status: StartupStatus,
+  criticalServices: (keyof StartupStatus)[] = DEFAULT_CRITICAL_SERVICES,
+) {
+  const failedCritical = criticalServices.filter((service) => !status[service]);
+
+  if (failedCritical.length > 0) {
+    throw new Error(`Startup checks failed for: ${failedCritical.join(', ')}`);
   }
 }
