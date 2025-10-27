@@ -1,7 +1,15 @@
 .reactflow-dark {
-  background: radial-gradient(circle at 20% 20%, rgba(248, 113, 113, 0.05), transparent 55%),
-    radial-gradient(circle at 80% 0%, rgba(56, 189, 248, 0.05), transparent 55%),
-    #040a1a;
+  background-color: #050b1a;
+  background-image: linear-gradient(
+      rgba(148, 163, 184, 0.08) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      90deg,
+      rgba(148, 163, 184, 0.08) 1px,
+      transparent 1px
+    );
+  background-size: 32px 32px;
   color: #cbd5f5;
 }
 

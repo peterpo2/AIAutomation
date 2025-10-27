@@ -6,6 +6,7 @@ import { prisma } from '../auth/prisma.client.js';
 import { notificationsService } from '../notifications/notifications.service.js';
 import { reportsService } from '../reports/reports.service.js';
 import { captionGeneratorService } from '../caption-generator/caption-generator.service.js';
+import { automationsService } from '../automations/automations.service.js';
 
 const redisUrl = process.env.REDIS_URL || 'redis://redis:6379';
 
@@ -16,6 +17,7 @@ class SchedulerService {
   private uploadQueue = new Queue('upload-automation', { connection });
   private reportQueue = new Queue('weekly-report', { connection });
   private captionQueue = new Queue('caption-refresh', { connection });
+  private automationQueue = new Queue('automation-run', { connection });
   private initialized = false;
 
   async init() {
@@ -89,6 +91,24 @@ class SchedulerService {
       { connection },
     );
 
+    new Worker(
+      'automation-run',
+      async (job) => {
+        try {
+          const code = (job.data?.code as string) ?? 'ACP';
+          const cascade = job.data?.cascade ?? true;
+          const source = (job.data?.source as string) ?? `scheduled:${job.name}`;
+          const payload = job.data?.payload;
+          await automationsService.runNode({ code, cascade, payload, source });
+          await this.logJob(`automation-run:${job.name}`, 'success');
+        } catch (error) {
+          await this.logJob(`automation-run:${job.name}`, 'failed');
+          throw error;
+        }
+      },
+      { connection },
+    );
+
     await this.ensureRecurringJobs();
 
     this.initialized = true;
@@ -136,10 +156,53 @@ class SchedulerService {
         jobId: 'caption-recurring',
       },
     );
+
+    await this.automationQueue.add(
+      'automation-daily',
+      { code: 'ACP', cascade: true, source: 'scheduled:daily' },
+      {
+        repeat: {
+          pattern: '30 7 * * *',
+        },
+        removeOnComplete: true,
+        jobId: 'automation-daily',
+      },
+    );
+
+    await this.automationQueue.add(
+      'automation-weekly',
+      { code: 'PTR', cascade: false, source: 'scheduled:weekly' },
+      {
+        repeat: {
+          pattern: '0 9 * * 1',
+        },
+        removeOnComplete: true,
+        jobId: 'automation-weekly',
+      },
+    );
   }
 
   async queueDropboxSync() {
     await this.dropboxQueue.add('manual-sync', {});
+  }
+
+  async queueAutomationRun(
+    code: string,
+    options: { delay?: number; cascade?: boolean; source?: string; payload?: unknown } = {},
+  ) {
+    await this.automationQueue.add(
+      `manual-${code}-${Date.now()}`,
+      {
+        code,
+        cascade: options.cascade ?? true,
+        source: options.source ?? 'queued',
+        payload: options.payload ?? null,
+      },
+      {
+        delay: options.delay ?? 0,
+        removeOnComplete: true,
+      },
+    );
   }
 
   private async logJob(jobName: string, status: string) {

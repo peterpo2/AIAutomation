@@ -62,3 +62,50 @@ model AutomationLayout {
   @@unique([userId, automationCode], map: "automation_layout_user_code_key")
   @@map("automation_layouts")
 }
+
+model Automation {
+  id          Int          @id @default(autoincrement())
+  code        String       @unique
+  name        String
+  description String
+  status      String
+  webhookUrl  String?      @map("webhook_url")
+  lastRun     DateTime?    @map("last_run")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+  kind        String       @default("webhook")
+  metadata    Json?        @map("metadata")
+
+  executions  Execution[]
+
+  @@map("automations")
+}
+
+model Execution {
+  id           Int        @id @default(autoincrement())
+  automationId Int        @map("automation_id")
+  status       String
+  result       Json?      @map("result")
+  logs         String?    @db.Text
+  startedAt    DateTime?  @map("started_at")
+  finishedAt   DateTime?  @map("finished_at")
+  createdAt    DateTime   @default(now()) @map("created_at")
+
+  automation   Automation @relation(fields: [automationId], references: [id], onDelete: Cascade)
+
+  @@map("executions")
+}
+
+model MediaAsset {
+  id         Int      @id @default(autoincrement())
+  dropboxId  String   @unique @map("dropbox_id")
+  client     String   @map("client")
+  month      String?  @map("month")
+  videoPath  String   @map("video_path")
+  status     String   @default("downloaded") @map("status")
+  fileName   String   @map("file_name")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@map("media_assets")
+}

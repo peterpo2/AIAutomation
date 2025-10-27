@@ -28,6 +28,11 @@ automationsRouter.get('/', async (req: AuthenticatedRequest, res) => {
   res.json({ nodes });
 });
 
+automationsRouter.get('/status', async (_req: AuthenticatedRequest, res) => {
+  const nodes = await automationsService.getStatuses();
+  res.json({ nodes });
+});
+
 const positionSchema = z
   .object({
     x: z.number().finite(),
@@ -112,7 +117,7 @@ automationsRouter.post('/run/:code', async (req: AuthenticatedRequest, res) => {
 
   try {
     const result = await automationsService.runNode({ code, payload: parseResult.data.payload });
-    res.status(result.ok ? 200 : 502).json(result);
+    res.status(200).json(result);
   } catch (error) {
     if (error instanceof AutomationError) {
       return res.status(error.status).json({
@@ -123,5 +128,27 @@ automationsRouter.post('/run/:code', async (req: AuthenticatedRequest, res) => {
 
     console.error('Failed to trigger automation node', error);
     res.status(500).json({ message: 'Failed to trigger automation node.' });
+  }
+});
+
+automationsRouter.get('/:code', async (req: AuthenticatedRequest, res) => {
+  const code = req.params.code;
+  if (!code) {
+    return res.status(400).json({ message: 'Automation code is required.' });
+  }
+
+  try {
+    const node = await automationsService.getNode(code, req.user?.id ?? null);
+    res.json({ node });
+  } catch (error) {
+    if (error instanceof AutomationError) {
+      return res.status(error.status).json({
+        message: error.message,
+        ...(error.details ? { details: error.details } : {}),
+      });
+    }
+
+    console.error('Failed to load automation node details', error);
+    res.status(500).json({ message: 'Failed to load automation node details.' });
   }
 });
