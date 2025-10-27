@@ -249,6 +249,7 @@ function AutomationsCanvas() {
   const [executionStates, setExecutionStates] = useState<Record<string, ExecutionState>>({});
   const automationMapRef = useRef<Record<string, AutomationNode>>({});
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+  const [showCanvasTools, setShowCanvasTools] = useState(false);
 
   const statusSummary = useMemo(() => {
     const summary: Record<'operational' | 'monitoring' | 'warning' | 'error', number> = {
@@ -663,66 +664,79 @@ function AutomationsCanvas() {
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="relative h-[660px]">
-          <div className="reactflow-dark absolute inset-0 overflow-hidden rounded-3xl border border-slate-800/70 bg-slate-950/70">
-            <ReactFlow
-              className="reactflow-dark"
-              nodeTypes={nodeTypes}
-              nodes={nodes}
-              edges={edges}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              fitView
-              fitViewOptions={{ padding: 0.24 }}
-              onNodeDragStop={handleNodeDragStop}
-              proOptions={{ hideAttribution: true }}
-              panOnScroll
-              selectionOnDrag
-              minZoom={0.5}
-              maxZoom={1.6}
+      <div className="relative h-[720px]">
+        <div className="reactflow-dark absolute inset-0 overflow-hidden rounded-3xl border border-slate-800/70 bg-slate-950/70">
+          <div className="pointer-events-none absolute right-5 top-5 z-10 flex flex-col items-end gap-2">
+            <button
+              type="button"
+              className="pointer-events-auto inline-flex items-center gap-2 rounded-full border border-slate-800/70 bg-slate-900/70 px-4 py-2 text-xs font-medium uppercase tracking-[0.24em] text-slate-300 transition hover:bg-slate-800/70"
+              onClick={() => setShowCanvasTools((prev) => !prev)}
             >
-              <MiniMap className="!bg-slate-950/80 !border !border-slate-800/60" />
-              <Controls className="!border !border-slate-800/60 !bg-slate-950/80" />
-              <Background gap={24} color="rgba(148, 163, 184, 0.12)" />
-            </ReactFlow>
+              {showCanvasTools ? 'Hide Canvas Tools' : 'Show Canvas Tools'}
+            </button>
+          </div>
+          <ReactFlow
+            className="reactflow-dark"
+            nodeTypes={nodeTypes}
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            fitView
+            fitViewOptions={{ padding: 0.24 }}
+            onNodeDragStop={handleNodeDragStop}
+            proOptions={{ hideAttribution: true }}
+            panOnScroll={false}
+            panOnDrag
+            selectionOnDrag
+            minZoom={0.5}
+            maxZoom={1.6}
+            zoomOnScroll
+            zoomOnPinch
+          >
+            {showCanvasTools ? (
+              <>
+                <MiniMap className="!bg-slate-950/80 !border !border-slate-800/60" />
+                <Controls className="!border !border-slate-800/60 !bg-slate-950/80" />
+              </>
+            ) : null}
+            <Background gap={24} color="rgba(148, 163, 184, 0.12)" />
+          </ReactFlow>
+        </div>
+      </div>
+      <section className="grid gap-6 rounded-3xl border border-slate-800/70 bg-slate-950/70 p-6">
+        <div className="space-y-2">
+          <h2 className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-500">Workflow health</h2>
+          <p className="text-sm text-slate-300">
+            Each automation hands off to the next stage: ideas → schedules → assets → publishing → reporting.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+          <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/5 p-4">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-200">Operational</span>
+            <p className="mt-1 text-2xl font-semibold text-emerald-100">{statusSummary.operational}</p>
+          </div>
+          <div className="rounded-2xl border border-sky-500/25 bg-sky-500/5 p-4">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-200">Monitoring</span>
+            <p className="mt-1 text-2xl font-semibold text-sky-100">{statusSummary.monitoring}</p>
+          </div>
+          <div className="rounded-2xl border border-amber-500/25 bg-amber-500/5 p-4">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-amber-200">Warnings</span>
+            <p className="mt-1 text-2xl font-semibold text-amber-100">{statusSummary.warning}</p>
+          </div>
+          <div className="rounded-2xl border border-rose-500/25 bg-rose-500/5 p-4">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-rose-200">Blocked</span>
+            <p className="mt-1 text-2xl font-semibold text-rose-100">{statusSummary.error}</p>
           </div>
         </div>
 
-        <aside className="flex flex-col gap-6 rounded-3xl border border-slate-800/70 bg-slate-950/70 p-6">
-          <div className="space-y-2">
-            <h2 className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-500">Workflow health</h2>
-            <p className="text-sm text-slate-300">
-              Each automation hands off to the next stage: ideas → schedules → assets → publishing → reporting.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/5 p-4">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-200">Operational</span>
-              <p className="mt-1 text-2xl font-semibold text-emerald-100">{statusSummary.operational}</p>
-            </div>
-            <div className="rounded-2xl border border-sky-500/25 bg-sky-500/5 p-4">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-200">Monitoring</span>
-              <p className="mt-1 text-2xl font-semibold text-sky-100">{statusSummary.monitoring}</p>
-            </div>
-            <div className="rounded-2xl border border-amber-500/25 bg-amber-500/5 p-4">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-amber-200">Warnings</span>
-              <p className="mt-1 text-2xl font-semibold text-amber-100">{statusSummary.warning}</p>
-            </div>
-            <div className="rounded-2xl border border-rose-500/25 bg-rose-500/5 p-4">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-rose-200">Blocked</span>
-              <p className="mt-1 text-2xl font-semibold text-rose-100">{statusSummary.error}</p>
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-slate-800/60 bg-slate-900/50 p-5 text-sm leading-relaxed text-slate-300">
-            <p>• AI Content Planner and Engagement Scheduler keep campaigns fresh and timed to audience peaks.</p>
-            <p className="mt-2">• Media Fetcher moves approved assets into the SmartOps media library and retries Dropbox when offline.</p>
-            <p className="mt-2">• Publishing and reporting nodes execute automatically once upstream checks pass.</p>
-          </div>
-        </aside>
-      </div>
+        <div className="rounded-2xl border border-slate-800/60 bg-slate-900/50 p-5 text-sm leading-relaxed text-slate-300">
+          <p>• AI Content Planner and Engagement Scheduler keep campaigns fresh and timed to audience peaks.</p>
+          <p className="mt-2">• Media Fetcher moves approved assets into the SmartOps media library and retries Dropbox when offline.</p>
+          <p className="mt-2">• Publishing and reporting nodes execute automatically once upstream checks pass.</p>
+        </div>
+      </section>
 
       <DetailModal
         open={Boolean(selectedCode)}
