@@ -32,11 +32,11 @@ export default function Layout({ children }: LayoutProps) {
 
   const baseNavItems = [
     { path: '/dashboard', label: 'Dashboard', icon: Home },
+    { path: '/clients', label: 'Clients', icon: Users2 },
     { path: '/dropbox', label: 'Dropbox', icon: Folder },
     { path: '/uploads', label: 'Uploads', icon: Upload },
-    { path: '/reports', label: 'Reports', icon: FileText },
     { path: '/automations', label: 'Automations', icon: Workflow },
-    { path: '/clients', label: 'Clients', icon: Users2 },
+    { path: '/reports', label: 'Reports', icon: FileText },
     { path: '/settings', label: 'Settings', icon: Settings },
   ];
 
