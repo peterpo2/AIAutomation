@@ -1,14 +1,18 @@
 import { memo, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Handle, NodeProps, Position } from 'reactflow';
-import { Link2, Loader2, Play } from 'lucide-react';
+import { CalendarClock, Loader2, Play } from 'lucide-react';
+import type { AutomationStatus } from '../../types/automations';
 
 export interface AutomationNodeData {
-  title: string;
-  shortDescription: string;
-  status: 'operational' | 'under-watch' | 'offline';
+  code: string;
+  name: string;
+  headline: string;
+  summary: string;
+  status: AutomationStatus;
   statusLabel: string;
   connected: boolean;
+  lastRun: string | null;
   onOpen: (id: string) => void;
   onExecute?: (id: string) => void;
   canExecute?: boolean;
@@ -17,31 +21,36 @@ export interface AutomationNodeData {
 }
 
 const statusStyles: Record<
-  AutomationNodeData['status'],
+  AutomationStatus,
   { label: string; dot: string; chip: string; ring: string; button: string }
 > = {
   operational: {
     label: 'Operational',
     dot: 'bg-emerald-400',
-    chip: 'bg-emerald-500/10 text-emerald-200 border border-emerald-500/30',
-    ring: 'ring-2 ring-emerald-500/40',
-    button:
-      'bg-emerald-500/15 text-emerald-100 hover:bg-emerald-500/25 focus-visible:ring-emerald-400/60',
+    chip: 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-200',
+    ring: 'ring-2 ring-emerald-400/40',
+    button: 'border border-emerald-500/40 text-emerald-100 hover:bg-emerald-500/10',
   },
-  'under-watch': {
-    label: 'Under Watch',
+  monitoring: {
+    label: 'Monitoring',
+    dot: 'bg-sky-400',
+    chip: 'border border-sky-500/40 bg-sky-500/10 text-sky-100',
+    ring: 'ring-2 ring-sky-400/40',
+    button: 'border border-sky-500/40 text-sky-100 hover:bg-sky-500/10',
+  },
+  warning: {
+    label: 'Needs attention',
     dot: 'bg-amber-400',
-    chip: 'bg-amber-500/10 text-amber-200 border border-amber-500/30',
-    ring: 'ring-2 ring-amber-500/40',
-    button:
-      'bg-amber-500/15 text-amber-100 hover:bg-amber-500/25 focus-visible:ring-amber-400/60',
+    chip: 'border border-amber-500/40 bg-amber-500/10 text-amber-100',
+    ring: 'ring-2 ring-amber-400/40',
+    button: 'border border-amber-500/40 text-amber-100 hover:bg-amber-500/10',
   },
-  offline: {
-    label: 'Offline',
+  error: {
+    label: 'Blocked',
     dot: 'bg-rose-400',
-    chip: 'bg-rose-500/10 text-rose-200 border border-rose-500/30',
-    ring: 'ring-2 ring-rose-500/40',
-    button: 'bg-rose-500/15 text-rose-100 hover:bg-rose-500/25 focus-visible:ring-rose-400/60',
+    chip: 'border border-rose-500/40 bg-rose-500/10 text-rose-100',
+    ring: 'ring-2 ring-rose-400/40',
+    button: 'border border-rose-500/40 text-rose-100 hover:bg-rose-500/10',
   },
 };
 
@@ -52,48 +61,68 @@ const executionMessageStyles: Record<NonNullable<AutomationNodeData['executionSt
   error: 'text-rose-200',
 };
 
+const formatRelativeTime = (value: string | null): string => {
+  if (!value) return 'No runs yet';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return 'No runs yet';
+  }
+
+  const diff = date.getTime() - Date.now();
+  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+  const minutes = Math.round(diff / (1000 * 60));
+
+  if (Math.abs(minutes) < 60) {
+    return formatter.format(minutes, 'minute');
+  }
+
+  const hours = Math.round(minutes / 60);
+  if (Math.abs(hours) < 48) {
+    return formatter.format(hours, 'hour');
+  }
+
+  const days = Math.round(hours / 24);
+  return formatter.format(days, 'day');
+};
+
 function AutomationNodeCardComponent({ id, data, selected }: NodeProps<AutomationNodeData>) {
   const statusStyle = statusStyles[data.status] ?? statusStyles.operational;
-  const connectionColor = data.connected ? 'bg-emerald-400 shadow-emerald-400/60' : 'bg-slate-600 shadow-slate-600/40';
   const executionStatus = data.executionStatus ?? 'idle';
   const executionMessage = data.executionMessage;
   const executionMessageClass = executionMessageStyles[executionStatus];
   const isExecuting = executionStatus === 'running';
   const canExecute = Boolean(data.onExecute) && (data.canExecute ?? true);
 
-  const displayDescription = useMemo(() => {
-    if (!data.shortDescription) return 'No description provided yet.';
-    return data.shortDescription;
-  }, [data.shortDescription]);
+  const lastRunLabel = useMemo(() => formatRelativeTime(data.lastRun), [data.lastRun]);
 
   return (
     <>
       <Handle
         type="target"
         position={Position.Left}
-        className="!h-3 !w-3 !border-none !bg-gradient-to-tr !from-slate-700 !to-slate-500"
+        className="!h-3 !w-3 !border-none !bg-slate-500"
       />
       <button
         type="button"
         onClick={() => data.onOpen(id)}
-        className={`group relative w-[280px] rounded-3xl border border-slate-800/80 bg-slate-900/70 p-6 text-left shadow-xl shadow-black/40 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/70 ${
+        className={`group relative w-[280px] rounded-3xl border border-slate-800/70 bg-slate-900/70 p-5 text-left shadow-lg shadow-black/30 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/70 ${
           selected ? statusStyle.ring : ''
         }`}
       >
         <motion.div
           layout
-          initial={{ opacity: 0.7, scale: 0.98 }}
+          initial={{ opacity: 0.85, scale: 0.98 }}
           animate={{ opacity: 1, scale: 1 }}
-          whileHover={{ translateY: -6 }}
-          transition={{ duration: 0.25, ease: 'easeOut' }}
-          className={`flex flex-col gap-4 rounded-2xl border border-slate-800/60 bg-slate-950/70 p-4 transition-colors ${
-            selected ? 'ring-2 ring-rose-400/60' : 'ring-0'
-          }`}
+          whileHover={{ translateY: -3 }}
+          transition={{ duration: 0.2, ease: 'easeOut' }}
+          className="flex flex-col gap-3"
         >
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h3 className="text-base font-semibold text-slate-50">{data.title}</h3>
-              <p className="mt-1 text-xs uppercase tracking-[0.28em] text-slate-500">Automation node</p>
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex flex-col gap-1">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.26em] text-slate-500">
+                {data.headline}
+              </span>
+              <h3 className="text-lg font-semibold text-slate-50">{data.name}</h3>
             </div>
             <span
               className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-wide ${statusStyle.chip}`}
@@ -103,22 +132,13 @@ function AutomationNodeCardComponent({ id, data, selected }: NodeProps<Automatio
             </span>
           </div>
 
-          <p className="text-sm leading-relaxed text-slate-400 group-hover:text-slate-200 transition-colors">
-            {displayDescription}
-          </p>
+          <p className="text-sm leading-relaxed text-slate-300">{data.summary}</p>
 
-          <div className="flex items-center justify-between text-xs text-slate-400">
-            <span className="inline-flex items-center gap-2 rounded-full border border-slate-700/80 bg-slate-900/80 px-3 py-1 font-medium">
-              <span className={`h-2.5 w-2.5 rounded-full shadow-lg ${connectionColor}`} />
-              <span>{data.connected ? 'n8n connected' : 'Connection pending'}</span>
+          <div className="mt-1 flex items-center justify-between text-xs text-slate-400">
+            <span className="inline-flex items-center gap-1">
+              <CalendarClock className="h-3.5 w-3.5" />
+              {lastRunLabel}
             </span>
-            <span className="inline-flex items-center gap-1 font-semibold text-rose-300 group-hover:text-rose-200">
-              View details
-              <Link2 className="h-3.5 w-3.5" />
-            </span>
-          </div>
-
-          <div className="mt-4 flex flex-col gap-2">
             <button
               type="button"
               onClick={(event) => {
@@ -126,20 +146,19 @@ function AutomationNodeCardComponent({ id, data, selected }: NodeProps<Automatio
                 if (!data.onExecute || !canExecute || isExecuting) return;
                 data.onExecute(id);
               }}
-              className={`inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold uppercase tracking-wide transition focus:outline-none focus-visible:ring-2 ${
+              className={`inline-flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
                 statusStyle.button
-              } ${
-                !canExecute || isExecuting
-                  ? 'pointer-events-none opacity-60'
-                  : 'shadow-lg shadow-black/20'
-              }`}
+              } ${!canExecute || isExecuting ? 'pointer-events-none opacity-60' : ''}`}
             >
-              {isExecuting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-              Execute workflow
+              {isExecuting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+              Run
             </button>
+          </div>
 
+          <div className="mt-3 space-y-1 text-xs text-slate-400">
+            <p>{data.statusLabel}</p>
             {executionMessage ? (
-              <p className={`text-xs font-medium ${executionMessageClass}`}>{executionMessage}</p>
+              <p className={`font-medium ${executionMessageClass}`}>{executionMessage}</p>
             ) : null}
           </div>
         </motion.div>
@@ -147,7 +166,7 @@ function AutomationNodeCardComponent({ id, data, selected }: NodeProps<Automatio
       <Handle
         type="source"
         position={Position.Right}
-        className="!h-3 !w-3 !border-none !bg-gradient-to-tr !from-rose-500 !to-rose-300"
+        className="!h-3 !w-3 !border-none !bg-rose-400"
       />
     </>
   );

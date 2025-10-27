@@ -3,6 +3,7 @@ import axios, { AxiosError } from 'axios';
 import { prisma } from '../auth/prisma.client.js';
 import { notificationsService } from '../notifications/notifications.service.js';
 import { captionGeneratorService } from '../caption-generator/caption-generator.service.js';
+import type { Video } from '@prisma/client';
 
 /** ---- Access Token Cache (avoid frequent refreshes) ---- */
 let cachedAccessToken: string | null = null;
@@ -90,11 +91,12 @@ export const dropboxService = {
    * Recursively scans Dropbox (starting at `path`) and inserts any new files into DB.
    * Triggers AI caption generation and sends a push summary for newly found videos.
    */
-  async syncFolders(path = ''): Promise<{ newFiles: number }> {
+  async syncFolders(path = ''): Promise<{ newFiles: number; created: Video[] }> {
     const client = await getDropboxClient();
     let cursor: string | undefined;
     let hasMore = true;
     const newVideos: string[] = [];
+    const createdRecords: Video[] = [];
 
     try {
       while (hasMore) {
@@ -132,6 +134,7 @@ export const dropboxService = {
           });
 
           newVideos.push(entry.name);
+          createdRecords.push(created);
 
           // Fire-and-forget AI caption generation
           captionGeneratorService
@@ -155,7 +158,7 @@ export const dropboxService = {
       }
 
       console.log(`Dropbox sync complete — ${newVideos.length} new video(s).`);
-      return { newFiles: newVideos.length };
+      return { newFiles: newVideos.length, created: createdRecords };
     } catch (err) {
       if (isAxiosError(err)) {
         console.error('Dropbox sync error (axios):', err.message, err.response?.status, err.response?.data);
@@ -173,6 +176,34 @@ export const dropboxService = {
     const client = await getDropboxClient();
     const result = await withRetry(() => client.filesGetTemporaryLink({ path: dropboxId }));
     return result.result.link;
+  },
+
+  async downloadFile(dropboxId: string): Promise<{ buffer: Buffer; size: number }> {
+    const client = await getDropboxClient();
+    const response = await withRetry(() => client.filesDownload({ path: dropboxId }));
+
+    const binary = (response.result as files.FileMetadataReference & { fileBinary?: unknown })
+      .fileBinary;
+
+    if (!binary) {
+      throw new Error('Dropbox download response did not include file data');
+    }
+
+    if (binary instanceof ArrayBuffer) {
+      return { buffer: Buffer.from(binary), size: binary.byteLength };
+    }
+
+    if (ArrayBuffer.isView(binary)) {
+      const view = binary as ArrayBufferView;
+      return { buffer: Buffer.from(view.buffer), size: view.byteLength };
+    }
+
+    if (typeof binary === 'string') {
+      const buffer = Buffer.from(binary, 'binary');
+      return { buffer, size: buffer.byteLength };
+    }
+
+    throw new Error('Unsupported Dropbox download payload type');
   },
 
   /** Testing/ops helper */
