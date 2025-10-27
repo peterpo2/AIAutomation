@@ -1,7 +1,7 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 import OpenAI from 'openai';
-import type { Automation, Execution } from '@prisma/client';
+import { Prisma, type Automation, type Execution } from '@prisma/client';
 import { prisma } from '../auth/prisma.client.js';
 import { dropboxService } from '../dropbox/dropbox.service.js';
 
@@ -39,7 +39,7 @@ interface AutomationBlueprint {
   sequence: number;
   kind: AutomationKind;
   webhookPath?: string;
-  metadata?: Record<string, unknown>;
+  metadata?: Prisma.JsonObject;
 }
 
 export interface AutomationNodeView {
@@ -288,7 +288,19 @@ const mapExecution = (execution: Execution): AutomationExecutionView => ({
   result: execution.result,
 });
 
-const computeMetadata = (blueprint: AutomationBlueprint): Record<string, unknown> => ({
+const isJsonObject = (
+  value: Prisma.JsonValue | null | undefined,
+): value is Prisma.JsonObject => typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const mergeJsonMetadata = (
+  existing: Prisma.JsonValue | null | undefined,
+  next: Prisma.JsonObject,
+): Prisma.JsonObject => ({
+  ...(isJsonObject(existing) ? existing : {}),
+  ...next,
+});
+
+const computeMetadata = (blueprint: AutomationBlueprint): Prisma.JsonObject => ({
   headline: blueprint.headline,
   deliverables: blueprint.deliverables,
   dependencies: blueprint.dependencies,
@@ -299,6 +311,18 @@ const computeMetadata = (blueprint: AutomationBlueprint): Record<string, unknown
   ...(blueprint.metadata ?? {}),
 });
 
+const buildMetadataRecord = (
+  automationMetadata: Prisma.JsonValue | null | undefined,
+  blueprint: AutomationBlueprint,
+): Record<string, unknown> => ({
+  ...computeMetadata(blueprint),
+  ...(isJsonObject(automationMetadata) ? automationMetadata : {}),
+});
+
+const createSummaryMetadata = (summary: string): Prisma.JsonObject => ({
+  lastSummary: summary,
+});
+
 const seedAutomations = async () => {
   const records = await prisma.automation.findMany();
   const recordMap = new Map(records.map((record) => [record.code, record]));
@@ -306,10 +330,7 @@ const seedAutomations = async () => {
   for (const blueprint of automationBlueprints) {
     const existing = recordMap.get(blueprint.code);
     const webhookUrl = resolveWebhookUrl(blueprint.webhookPath) ?? existing?.webhookUrl ?? null;
-    const metadata = {
-      ...(existing?.metadata as Record<string, unknown> | null | undefined),
-      ...computeMetadata(blueprint),
-    };
+    const metadata = mergeJsonMetadata(existing?.metadata, computeMetadata(blueprint));
 
     if (existing) {
       await prisma.automation.update({
@@ -366,12 +387,12 @@ const parseDropboxPath = (folderPath: string) => {
 
 const downloadMediaAssets = async (
   created: { dropboxId: string; fileName: string; folderPath: string }[],
-) => {
+): Promise<{ downloaded: number; files: Prisma.JsonObject[] }> => {
   if (created.length === 0) {
-    return { downloaded: 0, files: [] as Array<Record<string, unknown>> };
+    return { downloaded: 0, files: [] };
   }
 
-  const results: Array<Record<string, unknown>> = [];
+  const results: Prisma.JsonObject[] = [];
 
   for (const video of created) {
     try {
@@ -419,18 +440,28 @@ const downloadMediaAssets = async (
     }
   }
 
-  return { downloaded: results.filter((item) => !('error' in item)).length, files: results };
+  const successfulDownloads = results.filter((item) => !('error' in item));
+
+  return {
+    downloaded: successfulDownloads.length,
+    files: results,
+  };
 };
 
 const runMediaFetcher = async (
   blueprint: AutomationBlueprint,
   { scheduleRetry }: { scheduleRetry: (delayMs: number) => void },
-) => {
+): Promise<{
+  status: AutomationStatus;
+  summary: string;
+  result: Prisma.JsonObject;
+  logs: string;
+}> => {
   const dropboxPaths = Array.isArray(blueprint.metadata?.dropboxPaths)
     ? (blueprint.metadata?.dropboxPaths as string[])
     : ['/'];
 
-  const downloads: Array<Record<string, unknown>> = [];
+  const downloads: Prisma.JsonObject[] = [];
   let totalNew = 0;
 
   for (const pathCandidate of dropboxPaths) {
@@ -458,7 +489,8 @@ const runMediaFetcher = async (
     const downloadResult = await downloadMediaAssets(created);
     downloads.push({
       path: pathCandidate,
-      ...downloadResult,
+      downloaded: downloadResult.downloaded,
+      files: downloadResult.files,
     });
   }
 
@@ -468,7 +500,7 @@ const runMediaFetcher = async (
     result: {
       totalNew,
       downloads,
-    },
+    } as Prisma.JsonObject,
     logs:
       totalNew > 0
         ? downloads
@@ -482,7 +514,12 @@ const runMediaFetcher = async (
 const runWebhookAutomation = async (
   blueprint: AutomationBlueprint,
   payload?: unknown,
-): Promise<{ status: AutomationStatus; summary: string; result: unknown; logs: string }> => {
+): Promise<{
+  status: AutomationStatus;
+  summary: string;
+  result: Prisma.JsonObject;
+  logs: string;
+}> => {
   const webhookUrl = resolveWebhookUrl(blueprint.webhookPath);
   if (!webhookUrl) {
     throw new AutomationError(
@@ -541,7 +578,7 @@ const runWebhookAutomation = async (
   return {
     status: 'operational',
     summary: `Webhook executed successfully in ${duration}ms`,
-    result: { responseBody, status: response.status },
+    result: { responseBody, status: response.status } as Prisma.JsonObject,
     logs,
   };
 };
@@ -556,10 +593,7 @@ const updateAutomationStatus = async (
     data: {
       status,
       lastRun: new Date(),
-      metadata: {
-        ...(automation.metadata ?? {}),
-        lastSummary: summary,
-      },
+      metadata: mergeJsonMetadata(automation.metadata, createSummaryMetadata(summary)),
     },
   });
 };
@@ -571,6 +605,7 @@ const toNodeView = (
 ): AutomationNodeView => {
   const lastRun = automation.lastRun ? automation.lastRun.toISOString() : null;
   const status = normaliseAutomationStatus(automation.status);
+  const metadata = isJsonObject(automation.metadata) ? automation.metadata : null;
 
   return {
     code: automation.code,
@@ -583,8 +618,8 @@ const toNodeView = (
     dependencies: blueprint.dependencies,
     status,
     statusLabel:
-      typeof automation.metadata === 'object' && automation.metadata && 'lastSummary' in automation.metadata
-        ? (automation.metadata.lastSummary as string)
+      metadata && typeof metadata.lastSummary === 'string'
+        ? (metadata.lastSummary as string)
         : blueprint.statusLabel,
     sequence: blueprint.sequence,
     kind: blueprint.kind,
@@ -651,7 +686,12 @@ const runAutomationStep = async ({
   });
 
   try {
-    const result =
+    const result: {
+      status: AutomationStatus;
+      summary: string;
+      result: Prisma.JsonObject;
+      logs: string;
+    } =
       blueprint.kind === 'media-fetcher'
         ? await runMediaFetcher(blueprint, { scheduleRetry })
         : await runWebhookAutomation(blueprint, payload);
@@ -696,30 +736,27 @@ const runAutomationStep = async ({
     const message = error instanceof Error ? error.message : 'Unknown automation failure';
     const severity = error instanceof AutomationError ? error.severity : 'error';
 
-    await prisma.execution.update({
-      where: { id: execution.id },
-      data: {
-        status: 'error',
-        finishedAt,
-        logs:
-          error instanceof Error && error.stack
-            ? `${error.stack}\nSource: ${source}.`
-            : `${message}\nSource: ${source}.`,
-        result: { error: message },
-      },
-    });
-
-    await prisma.automation.update({
-      where: { id: automation.id },
-      data: {
-        status: severity,
-        lastRun: finishedAt,
-        metadata: {
-          ...(automation.metadata ?? {}),
-          lastSummary: message,
+      await prisma.execution.update({
+        where: { id: execution.id },
+        data: {
+          status: 'error',
+          finishedAt,
+          logs:
+            error instanceof Error && error.stack
+              ? `${error.stack}\nSource: ${source}.`
+              : `${message}\nSource: ${source}.`,
+          result: { error: message } as Prisma.JsonObject,
         },
-      },
-    });
+      });
+
+      await prisma.automation.update({
+        where: { id: automation.id },
+        data: {
+          status: severity,
+          lastRun: finishedAt,
+          metadata: mergeJsonMetadata(automation.metadata, createSummaryMetadata(message)),
+        },
+      });
 
     if (error instanceof AutomationError) {
       throw error;
@@ -796,11 +833,11 @@ export const automationsService = {
       take: 25,
     });
 
-    return {
-      ...toNodeView(blueprint, automation, layout),
-      metadata: (automation.metadata as Record<string, unknown> | null) ?? computeMetadata(blueprint),
-      executions: executions.map(mapExecution),
-    } satisfies AutomationNodeDetails;
+      return {
+        ...toNodeView(blueprint, automation, layout),
+        metadata: buildMetadataRecord(automation.metadata, blueprint),
+        executions: executions.map(mapExecution),
+      } satisfies AutomationNodeDetails;
   },
 
   async saveNodePosition({
