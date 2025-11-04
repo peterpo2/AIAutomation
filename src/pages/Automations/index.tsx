@@ -1,1020 +1,758 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import {
-  Background,
-  Controls,
-  MiniMap,
-  MarkerType,
-  Node,
-  NodeChange,
-  ReactFlow,
-  ReactFlowInstance,
-  ReactFlowProvider,
-  applyNodeChanges,
-  useEdgesState,
-  useNodesState,
-  type Edge,
-  type NodeProps,
-} from 'reactflow';
+import { Background, Controls, MiniMap, MarkerType, ReactFlow, ReactFlowProvider, useEdgesState, useNodesState, type Edge, type Node } from 'reactflow';
 import 'reactflow/dist/style.css';
-
-import { Loader2 } from 'lucide-react';
 import dagre from '@dagrejs/dagre';
+import { Loader2, RefreshCcw, X, Play } from 'lucide-react';
+
 import { useAuth } from '../../context/AuthContext';
 import { apiFetch } from '../../lib/apiClient';
-import type { AutomationNode } from '../../types/automations';
+import type { AutomationDetail, AutomationNode, AutomationRunResponse } from '../../types/automations';
 import type { AutomationNodeData } from '../../components/automations/AutomationNodeCard';
 import '../../styles/reactflow.css';
 
 const LazyAutomationNode = lazy(() => import('../../components/automations/AutomationNodeCard'));
 
-interface AutomationOverviewItem extends AutomationNode {
-  shortDescription: string;
-  position?: { x: number; y: number } | null;
-}
-
-const simplifyDescription = (description: string) => {
-  if (!description) return '';
-  if (description.length <= 180) return description;
-  return `${description.slice(0, 177)}…`;
-};
-
-const statusMap: Record<AutomationNode['status'], AutomationNodeData['status']> = {
-  operational: 'operational',
-  monitor: 'under-watch',
-  upcoming: 'offline',
-};
-
-const statusRefreshIntervalMs = 30_000;
 const nodeWidth = 280;
-const nodeHeight = 200;
+const nodeHeight = 220;
+const statusRefreshIntervalMs = 45_000;
 
-const nodeSpacingX = 360;
-const nodeStartY = 80;
+const simplify = (value: string) => {
+  if (!value) return '';
+  if (value.length <= 200) return value;
+  return `${value.slice(0, 197)}…`;
+};
+
+const formatDateTime = (value: string | null) => {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+};
+
+const formatExecutionStatus = (status: string) => {
+  if (!status) return 'Unknown';
+  if (status === 'success') return 'Succeeded';
+  if (status === 'error') return 'Failed';
+  if (status === 'running') return 'Running';
+  return status.replace(/_/g, ' ');
+};
 
 type AutomationFlowNode = Node<AutomationNodeData>;
 
-type AutomationNodeTypeRenderer = (props: NodeProps<AutomationNodeData>) => JSX.Element;
+type ExecutionState = {
+  status: 'idle' | 'running' | 'success' | 'error';
+  message?: string;
+};
 
-interface AutomationStatusUpdate {
-  code: string;
-  status?: string;
-  statusLabel?: string;
-  connected?: boolean;
+interface DetailState {
+  loading: boolean;
+  error: string | null;
+  data: AutomationDetail | null;
 }
 
-const toAutomationStatusValue = (
-  status: string | null | undefined,
-  fallback: AutomationNode['status'] = 'operational',
-): AutomationNode['status'] => {
-  if (!status) return fallback;
-  if (status === 'operational' || status === 'online' || status === 'active') {
-    return 'operational';
-  }
-  if (status === 'monitor' || status === 'monitoring' || status === 'under-watch' || status === 'under_watch') {
-    return 'monitor';
-  }
-  if (status === 'upcoming' || status === 'offline' || status === 'down') {
-    return 'upcoming';
-  }
-  return fallback;
-};
-
-const mapStatusToNodeStatus = (
-  status: string | null | undefined,
-): AutomationNodeData['status'] => {
-  if (!status) return 'operational';
-  if (status === 'operational') return 'operational';
-  if (status === 'monitor' || status === 'under-watch' || status === 'under_watch') {
-    return 'under-watch';
-  }
-  if (status === 'offline' || status === 'down' || status === 'upcoming') {
-    return 'offline';
-  }
-  return 'operational';
-};
-
-const extractPosition = (node: Record<string, unknown>): { x: number; y: number } | null => {
-  if (!node) return null;
-
-  const direct = node.position;
-  if (direct && typeof direct === 'object') {
-    const value = direct as Record<string, unknown>;
-    const x = Number(value.x);
-    const y = Number(value.y);
-    if (Number.isFinite(x) && Number.isFinite(y)) {
-      return { x, y };
-    }
-  }
-
-  const lookup = (key: string) => {
-    const value = (node as Record<string, unknown>)[key];
-    return typeof value === 'number' ? value : undefined;
-  };
-
-  const layoutRaw = (node as Record<string, unknown>).layout;
-  let layoutX: number | undefined;
-  let layoutY: number | undefined;
-
-  if (layoutRaw && typeof layoutRaw === 'object') {
-    const layout = layoutRaw as Record<string, unknown>;
-    layoutX = typeof layout.x === 'number' ? (layout.x as number) : undefined;
-    layoutY = typeof layout.y === 'number' ? (layout.y as number) : undefined;
-  }
-
-  const candidatesX = [lookup('positionX'), lookup('x'), lookup('posX'), lookup('layoutX'), layoutX];
-  const candidatesY = [lookup('positionY'), lookup('y'), lookup('posY'), lookup('layoutY'), layoutY];
-
-  const x = candidatesX.find((value) => typeof value === 'number');
-  const y = candidatesY.find((value) => typeof value === 'number');
-
-  if (typeof x === 'number' && typeof y === 'number') {
-    return { x, y };
-  }
-
-  return null;
-};
-
-const normalizeStatusPayload = (payload: unknown): AutomationStatusUpdate[] => {
-  if (!payload) {
-    return [];
-  }
-
-  const mapItem = (item: unknown): AutomationStatusUpdate | null => {
-    if (!item || typeof item !== 'object') {
-      return null;
-    }
-    const record = item as Record<string, unknown>;
-    const codeCandidate = record.code ?? record.id ?? record.workflowId ?? record.slug;
-    if (typeof codeCandidate !== 'string') {
-      return null;
-    }
-
-    return {
-      code: codeCandidate,
-      status: typeof record.status === 'string' ? record.status : undefined,
-      statusLabel: typeof record.statusLabel === 'string' ? record.statusLabel : undefined,
-      connected: typeof record.connected === 'boolean' ? record.connected : undefined,
-    };
-  };
-
-  if (Array.isArray(payload)) {
-    return payload.map(mapItem).filter((item): item is AutomationStatusUpdate => Boolean(item));
-  }
-
-  if (typeof payload === 'object') {
-    const container = payload as Record<string, unknown>;
-    const keys = ['statuses', 'nodes', 'items', 'automations', 'data'];
-    for (const key of keys) {
-      if (Array.isArray(container[key])) {
-        return normalizeStatusPayload(container[key]);
-      }
-    }
-  }
-
-  return [];
-};
-
 const NodeFallback = () => (
-  <div className="w-[280px] rounded-3xl border border-slate-800/80 bg-slate-900/60 p-6 text-center text-sm text-slate-400">
+  <div className="w-[300px] rounded-3xl border border-slate-800/80 bg-slate-900/60 p-6 text-center text-sm text-slate-400">
     Loading…
   </div>
 );
 
-export default function AutomationsFlow() {
+const buildGraphLayout = (nodes: AutomationNode[]) => {
+  const graph = new dagre.graphlib.Graph();
+  graph.setDefaultEdgeLabel(() => ({}));
+  graph.setGraph({ rankdir: 'LR', nodesep: 160, ranksep: 120 });
+
+  nodes.forEach((node) => {
+    graph.setNode(node.code, { width: nodeWidth, height: nodeHeight });
+  });
+
+  nodes.forEach((node) => {
+    node.dependencies.forEach((dependency) => {
+      graph.setEdge(dependency, node.code);
+    });
+  });
+
+  dagre.layout(graph);
+
+  const positions = new Map<string, { x: number; y: number }>();
+  nodes.forEach((node) => {
+    const nodeWithPosition = graph.node(node.code) as { x: number; y: number } | undefined;
+    if (!nodeWithPosition) return;
+    positions.set(node.code, {
+      x: nodeWithPosition.x - nodeWidth / 2,
+      y: nodeWithPosition.y - nodeHeight / 2,
+    });
+  });
+
+  return positions;
+};
+
+const nodeTypes = {
+  automation: (props: Node<AutomationNodeData>) => (
+    <Suspense fallback={<NodeFallback />}>
+      <LazyAutomationNode {...props} />
+    </Suspense>
+  ),
+};
+
+const buildEdgesFromNodes = (nodes: AutomationNode[]): Edge[] => {
+  const edges: Edge[] = [];
+  nodes.forEach((node) => {
+    node.dependencies.forEach((dependency) => {
+      edges.push({
+        id: `${dependency}__${node.code}`,
+        source: dependency,
+        target: node.code,
+        type: 'smoothstep',
+        animated: true,
+        markerEnd: { type: MarkerType.ArrowClosed, color: 'rgba(248, 113, 113, 0.7)' },
+        style: { stroke: 'rgba(248, 113, 113, 0.6)', strokeWidth: 2 },
+      });
+    });
+  });
+  return edges;
+};
+
+const DetailModal = ({
+  open,
+  detail,
+  state,
+  onClose,
+  onRun,
+}: {
+  open: boolean;
+  detail: AutomationDetail | null;
+  state: DetailState;
+  onClose: () => void;
+  onRun: (code: string) => void;
+}) => {
+  if (!open) return null;
+
+  const showRunHistory = detail?.executions ?? [];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-6 backdrop-blur">
+      <div className="relative flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl border border-slate-800/70 bg-slate-950/85 shadow-2xl">
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute right-5 top-5 inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-800/60 bg-slate-900/80 text-slate-400 transition hover:text-slate-100"
+        >
+          <X className="h-5 w-5" />
+        </button>
+
+        {state.loading ? (
+          <div className="flex flex-1 items-center justify-center p-16 text-slate-300">
+            <Loader2 className="mr-3 h-5 w-5 animate-spin" /> Loading automation…
+          </div>
+        ) : state.error ? (
+          <div className="flex flex-1 items-center justify-center p-16 text-rose-200">
+            {state.error}
+          </div>
+        ) : detail ? (
+          <div className="grid h-full grid-cols-1 gap-0 lg:grid-cols-[1.5fr_1fr]">
+            <div className="flex flex-col gap-6 overflow-y-auto px-8 py-10">
+              <div className="flex flex-col gap-3">
+                <span className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-500">{detail.headline}</span>
+                <h2 className="text-3xl font-semibold text-white">{detail.name}</h2>
+                <p className="text-sm leading-relaxed text-slate-300">{detail.description}</p>
+                <p className="text-xs text-slate-500">{detail.statusLabel}</p>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="rounded-2xl border border-slate-800/60 bg-slate-900/60 p-4">
+                  <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">Outputs</h3>
+                  <ul className="mt-3 space-y-2 text-sm leading-relaxed text-slate-300">
+                    {detail.deliverables.map((item) => (
+                      <li key={item} className="list-inside list-disc">
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="flex flex-col gap-3 rounded-2xl border border-slate-800/60 bg-slate-900/60 p-4">
+                  <div>
+                    <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">Workflow logic</h3>
+                    <p className="mt-2 text-sm leading-relaxed text-slate-300">{detail.function}</p>
+                  </div>
+                  <div>
+                    <h4 className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-500">Dependencies</h4>
+                    <p className="mt-2 text-sm text-slate-300">
+                      {detail.dependencies.length > 0 ? detail.dependencies.join(', ') : 'Runs independently'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-800/60 bg-slate-900/60 p-5">
+                <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">AI assistance</h3>
+                <p className="mt-2 text-sm text-slate-300">{detail.aiAssist}</p>
+              </div>
+
+              <div className="flex flex-col gap-3">
+                <button
+                  type="button"
+                  onClick={() => onRun(detail.code)}
+                  className="inline-flex items-center gap-2 self-start rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-2 text-sm font-semibold text-rose-100 transition hover:bg-rose-500/20"
+                >
+                  <Play className="h-4 w-4" /> Run this node now
+                </button>
+                <p className="text-xs text-slate-500">
+                  Manual runs trigger dependent nodes automatically when prerequisites are met.
+                </p>
+              </div>
+            </div>
+
+            <aside className="flex h-full flex-col border-t border-slate-900/60 bg-slate-950/60 px-6 py-8 lg:border-l lg:border-t-0">
+              <div className="flex items-baseline justify-between gap-4">
+                <h3 className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-400">Run history</h3>
+                <span className="text-xs text-slate-500">Last run {formatDateTime(detail.lastRun)}</span>
+              </div>
+              <div className="mt-4 flex-1 overflow-y-auto pr-2">
+                {showRunHistory.length === 0 ? (
+                  <p className="text-sm text-slate-400">No executions recorded yet.</p>
+                ) : (
+                  <ul className="space-y-3">
+                    {showRunHistory.map((run) => (
+                      <li key={run.id} className="rounded-xl border border-slate-800/60 bg-slate-900/60 p-3">
+                        <div className="flex items-center justify-between text-sm text-slate-200">
+                          <span className="font-semibold text-rose-200">{formatExecutionStatus(run.status)}</span>
+                          <span className="text-xs text-slate-500">{formatDateTime(run.startedAt)}</span>
+                        </div>
+                        {run.logs ? (
+                          <pre className="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap break-words text-xs text-slate-400">
+                            {run.logs}
+                          </pre>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </aside>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+};
+
+function AutomationsCanvas() {
   const { user } = useAuth();
-  const navigate = useNavigate();
-  const [nodes, setNodes] = useNodesState<AutomationNodeData>([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<AutomationNodeData>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
-  const [initialFitDone, setInitialFitDone] = useState(false);
-  const automationMapRef = useRef<Record<string, AutomationOverviewItem>>({});
-  const [executionStates, setExecutionStates] = useState<
-    Record<string, { status: 'idle' | 'running' | 'success' | 'error'; message?: string }>
-  >({});
   const statusIntervalRef = useRef<number | null>(null);
-  const executionResetTimersRef = useRef<Record<string, number>>({});
-  const initialOrderRef = useRef<string[]>([]);
-  const defaultPositionsRef = useRef<Record<string, { x: number; y: number }>>({});
-  const saveFeedbackTimeoutRef = useRef<number | null>(null);
-  const [controlsVisible, setControlsVisible] = useState(false);
-  const [layoutDirty, setLayoutDirty] = useState(false);
-  const [savingLayout, setSavingLayout] = useState(false);
-  const [saveFeedback, setSaveFeedback] = useState<
-    | {
-        type: 'success' | 'error';
-        message: string;
+  const [selectedCode, setSelectedCode] = useState<string | null>(null);
+  const [detailState, setDetailState] = useState<DetailState>({ loading: false, error: null, data: null });
+  const [executionStates, setExecutionStates] = useState<Record<string, ExecutionState>>({});
+  const automationMapRef = useRef<Record<string, AutomationNode>>({});
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+  const [showCanvasTools, setShowCanvasTools] = useState(false);
+
+  const statusSummary = useMemo(() => {
+    const summary: Record<'operational' | 'monitoring' | 'warning' | 'error', number> = {
+      operational: 0,
+      monitoring: 0,
+      warning: 0,
+      error: 0,
+    };
+
+    nodes.forEach((nodeItem) => {
+      const key = nodeItem.data.status;
+      if (key in summary) {
+        summary[key as keyof typeof summary] += 1;
       }
-    | null
-  >(null);
+    });
 
-  const n8nBaseUrl = useMemo(() => {
-    const raw = import.meta.env.VITE_N8N_BASE_URL ?? '';
-    if (typeof raw !== 'string' || raw.trim().length === 0) {
-      return '';
-    }
-    return raw.trim().replace(/\/$/, '');
-  }, []);
+    return summary;
+  }, [nodes]);
 
-  const nodeTypes = useMemo(() => {
-    const renderer: AutomationNodeTypeRenderer = (props) => (
-      <Suspense fallback={<NodeFallback />}>
-        <LazyAutomationNode {...props} />
-      </Suspense>
-    );
-
-    return { automation: renderer };
-  }, []);
-
-  const clearExecutionReset = useCallback((id: string) => {
-    const currentTimers = executionResetTimersRef.current;
-    if (currentTimers[id]) {
-      window.clearTimeout(currentTimers[id]);
-      delete currentTimers[id];
-    }
-  }, []);
-
-  const scheduleExecutionReset = useCallback((id: string) => {
-    clearExecutionReset(id);
-    executionResetTimersRef.current[id] = window.setTimeout(() => {
-      setExecutionStates((prev) => {
-        const next = { ...prev };
-        if (!next[id]) {
-          return prev;
-        }
-        next[id] = { status: 'idle', message: undefined };
-        return next;
-      });
-      delete executionResetTimersRef.current[id];
-    }, 8_000);
-  }, [clearExecutionReset]);
-
-  const handleExecuteAutomation = useCallback(
-    async (id: string) => {
-      const meta = automationMapRef.current[id];
-      if (!meta) {
-        return;
-      }
-
-      clearExecutionReset(id);
-
-      const webhook = (() => {
-        if (meta.webhookUrl && meta.webhookUrl.trim().length > 0) {
-          return meta.webhookUrl.trim();
-        }
-        if (!n8nBaseUrl || !meta.webhookPath) {
-          return null;
-        }
-        const sanitizedPath = meta.webhookPath.replace(/^\/+/, '');
-        return `${n8nBaseUrl}/${sanitizedPath}`;
-      })();
-
-      if (!webhook) {
-        setExecutionStates((prev) => ({
-          ...prev,
-          [id]: { status: 'error', message: 'No webhook configured for this automation.' },
-        }));
-        scheduleExecutionReset(id);
-        return;
-      }
-
-      setExecutionStates((prev) => ({
-        ...prev,
-        [id]: { status: 'running', message: 'Executing workflow…' },
-      }));
-
-      try {
-        const response = await fetch(webhook, { method: 'POST' });
-        if (!response.ok) {
-          throw new Error(`Execution failed (${response.status})`);
-        }
-
-        setExecutionStates((prev) => ({
-          ...prev,
-          [id]: { status: 'success', message: 'Workflow triggered successfully.' },
-        }));
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Unable to execute workflow.';
-        console.error('Failed to execute automation workflow', err);
-        setExecutionStates((prev) => ({
-          ...prev,
-          [id]: { status: 'error', message },
-        }));
-      } finally {
-        scheduleExecutionReset(id);
-      }
-    },
-    [clearExecutionReset, n8nBaseUrl, scheduleExecutionReset],
-  );
+  const lastUpdatedLabel = useMemo(() => {
+    if (!lastRefreshed) return '—';
+    return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(lastRefreshed);
+  }, [lastRefreshed]);
 
   const persistNodePosition = useCallback(
-    async (id: string, position: { x: number; y: number } | null | undefined) => {
-      if (!user || !position) {
-        return false;
-      }
-
+    async (code: string, position: { x: number; y: number } | null | undefined) => {
+      if (!user || !position) return;
       try {
         const token = await user.getIdToken();
-        const response = await apiFetch(`/automations/${id}/position`, {
+        await apiFetch(`/automations/${code}/position`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ x: position.x, y: position.y }),
+          body: JSON.stringify(position),
         });
-
-        if (!response.ok) {
-          const payload = (await response.json().catch(() => null)) as { message?: string } | null;
-          throw new Error(payload?.message ?? `Failed with status ${response.status}`);
-        }
-
-        return true;
       } catch (err) {
         console.error('Failed to persist automation node position', err);
-        return false;
       }
     },
     [user],
   );
 
-  const persistNodePositions = useCallback(
-    async (nodeList: AutomationFlowNode[]) => {
-      if (!nodeList || nodeList.length === 0) {
-        return true;
-      }
-
-      const results = await Promise.all(
-        nodeList.map((node) => persistNodePosition(node.id, node.position)),
+  const handleNodeDragStop = useCallback(
+    (_event: unknown, node: AutomationFlowNode) => {
+      setNodes((current) =>
+        current.map((item) => (item.id === node.id ? { ...item, position: node.position } : item)),
       );
-
-      return results.every(Boolean);
+      void persistNodePosition(node.id, node.position);
     },
-    [persistNodePosition],
+    [persistNodePosition, setNodes],
   );
 
-  const updateEdgesFromNodes = useCallback(
-    (nodeList: AutomationFlowNode[]) => {
-      if (!nodeList || nodeList.length <= 1) {
-        setEdges([]);
+  const handleRunAutomation = useCallback(
+    async (code: string) => {
+      const automation = automationMapRef.current[code];
+      if (!automation || !user) {
         return;
       }
 
-      const sorted = [...nodeList].sort((a, b) => {
-        if (a.position.x === b.position.x) {
-          return a.position.y - b.position.y;
+      setExecutionStates((prev) => ({
+        ...prev,
+        [code]: { status: 'running', message: 'Executing…' },
+      }));
+
+      let processedCodes: string[] = [code];
+
+      try {
+        const token = await user.getIdToken();
+        const response = await apiFetch(`/automations/run/${code}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({}),
+        });
+
+        if (!response.ok) {
+          const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+          throw new Error(payload?.message ?? `Run failed (${response.status})`);
         }
-        return a.position.x - b.position.x;
-      });
 
-      const linked: Edge[] = sorted.slice(0, -1).map((node, index) => {
-        const next = sorted[index + 1];
-        return {
-          id: `${node.id}__${next.id}`,
-          source: node.id,
-          target: next.id,
-          animated: true,
-          type: 'smoothstep',
-          markerEnd: {
-            type: MarkerType.ArrowClosed,
-            color: 'rgba(248, 113, 113, 0.85)',
-          },
-          style: {
-            stroke: 'rgba(248, 113, 113, 0.8)',
-            strokeWidth: 2.5,
-          },
-        } satisfies Edge;
-      });
+        const payload = (await response.json()) as AutomationRunResponse;
+        const resultEntries = [
+          { code: payload.automation.code, automation: payload.automation, execution: payload.execution },
+          ...payload.cascade.map((entry) => ({
+            code: entry.automation.code,
+            automation: entry.automation,
+            execution: entry.execution,
+          })),
+        ];
 
-      setEdges(linked);
+        processedCodes = resultEntries.map((entry) => entry.code);
+
+        resultEntries.forEach((entry) => {
+          automationMapRef.current[entry.code] = entry.automation;
+        });
+
+        const messageMap = new Map<string, string>();
+        const pipelineCount = resultEntries.length;
+        messageMap.set(
+          payload.automation.code,
+          pipelineCount > 1
+            ? `Triggered ${pipelineCount} connected step${pipelineCount === 1 ? '' : 's'}.`
+            : 'Workflow triggered successfully.',
+        );
+
+        payload.cascade.forEach((entry) => {
+          const dependencies = entry.automation.dependencies ?? [];
+          const descriptor =
+            dependencies.length > 0 ? dependencies.join(' → ') : payload.automation.name ?? payload.automation.code;
+          messageMap.set(entry.automation.code, `Auto-ran after ${descriptor}.`);
+        });
+
+        const updateMap = new Map(resultEntries.map((entry) => [entry.code, entry]));
+
+        setNodes((current) =>
+          current.map((node) => {
+            const update = updateMap.get(node.id);
+            if (!update) return node;
+            return {
+              ...node,
+              data: {
+                ...node.data,
+                status: update.automation.status,
+                statusLabel: update.automation.statusLabel,
+                lastRun: update.automation.lastRun,
+                executionStatus: 'success',
+                executionMessage: messageMap.get(update.automation.code) ?? 'Workflow triggered successfully.',
+              },
+            } satisfies AutomationFlowNode;
+          }),
+        );
+
+        setExecutionStates((prev) => {
+          const next = { ...prev };
+          resultEntries.forEach((entry) => {
+            next[entry.code] = {
+              status: 'success',
+              message: messageMap.get(entry.code) ?? 'Workflow triggered successfully.',
+            };
+          });
+          return next;
+        });
+
+        if (selectedCode) {
+          setDetailState((prev) => {
+            if (!prev.data) return prev;
+            const update = updateMap.get(prev.data.code);
+            if (!update) return prev;
+            return {
+              ...prev,
+              data: {
+                ...prev.data,
+                ...update.automation,
+                executions: [update.execution, ...prev.data.executions].slice(0, 25),
+              },
+            };
+          });
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Automation execution failed.';
+        setExecutionStates((prev) => ({
+          ...prev,
+          [code]: { status: 'error', message },
+        }));
+        console.error('Failed to execute automation', err);
+      } finally {
+        window.setTimeout(() => {
+          setExecutionStates((prev) => {
+            const next = { ...prev };
+            processedCodes.forEach((entryCode) => {
+              if (next[entryCode]?.status === 'success') {
+                next[entryCode] = { status: 'idle' };
+              } else if (entryCode === code && next[entryCode]?.status === 'running') {
+                next[entryCode] = { status: 'idle' };
+              }
+            });
+            return next;
+          });
+        }, 6_000);
+      }
     },
-    [setEdges],
+    [selectedCode, setNodes, user],
   );
 
-  const handleOpenDetails = useCallback(
-    (id: string) => {
-      navigate(`/automations/${id}`);
-    },
-    [navigate],
-  );
-
-  const buildNodes = useCallback(
-    (items: AutomationOverviewItem[]): AutomationFlowNode[] =>
-      items.map((automation, index) => {
-        const basePosition = automation.position ?? {
-          x: index * nodeSpacingX,
-          y: nodeStartY,
-        };
+  const buildFlowNodes = useCallback(
+    (items: AutomationNode[], layoutPositions: Map<string, { x: number; y: number }>): AutomationFlowNode[] =>
+      items.map((automation) => {
+        const savedPosition = automation.layout ?? automation.position ?? null;
+        const dagrePosition = layoutPositions.get(automation.code) ?? null;
+        const position = savedPosition ?? dagrePosition ?? { x: 0, y: 0 };
 
         return {
           id: automation.code,
           type: 'automation',
-          position: basePosition,
+          position,
           draggable: true,
           data: {
-            title: automation.title,
-            shortDescription: automation.shortDescription,
-            status: statusMap[automation.status] ?? 'operational',
+            code: automation.code,
+            name: automation.name,
+            headline: automation.headline,
+            summary: simplify(automation.description),
+            status: automation.status,
             statusLabel: automation.statusLabel,
             connected: automation.connected,
-            onOpen: handleOpenDetails,
-            onExecute: handleExecuteAutomation,
-            canExecute: Boolean(automation.webhookUrl || (n8nBaseUrl && automation.webhookPath)),
-            executionStatus: 'idle',
-            executionMessage: null,
+            lastRun: automation.lastRun,
+            onOpen: setSelectedCode,
+            onExecute: handleRunAutomation,
+            canExecute: true,
+            executionStatus: executionStates[automation.code]?.status ?? 'idle',
+            executionMessage: executionStates[automation.code]?.message ?? null,
           },
         } satisfies AutomationFlowNode;
       }),
-    [handleExecuteAutomation, handleOpenDetails, n8nBaseUrl],
+    [executionStates, handleRunAutomation],
   );
 
-  const refreshNodes = useCallback(
-    (items: AutomationOverviewItem[]) => {
-      automationMapRef.current = items.reduce<Record<string, AutomationOverviewItem>>(
-        (acc, item) => {
-          acc[item.code] = item;
-          return acc;
-        },
-        {},
-      );
-
-      initialOrderRef.current = items.map((item) => item.code);
-      defaultPositionsRef.current = items.reduce<Record<string, { x: number; y: number }>>(
-        (acc, item, index) => {
-          acc[item.code] = {
-            x: index * nodeSpacingX,
-            y: nodeStartY,
-          };
-          return acc;
-        },
-        {},
-      );
-
-      setExecutionStates((prev) => {
-        const next: Record<string, { status: 'idle' | 'running' | 'success' | 'error'; message?: string }> = {};
-        items.forEach((item) => {
-          next[item.code] = prev[item.code] ?? { status: 'idle' };
-        });
-        return next;
-      });
-
-      const nextNodes = buildNodes(items);
-      setNodes(nextNodes);
-      updateEdgesFromNodes(nextNodes);
-      setInitialFitDone(false);
-      setLayoutDirty(false);
-      setSaveFeedback(null);
-    },
-    [buildNodes, setNodes, updateEdgesFromNodes],
-  );
-
-  const handleNodesChange = useCallback(
-    (changes: NodeChange<AutomationNodeData>[]) => {
-      setNodes((current) => {
-        const updated = applyNodeChanges(changes, current);
-        updated.forEach((node) => {
-          const meta = automationMapRef.current[node.id];
-          if (meta) {
-            automationMapRef.current[node.id] = {
-              ...meta,
-              position: node.position ?? meta.position ?? null,
-            };
-          }
-        });
-        updateEdgesFromNodes(updated as AutomationFlowNode[]);
-        return updated;
-      });
-    },
-    [setNodes, updateEdgesFromNodes],
-  );
-
-  const handleNodeDragStop = useCallback(
-    (_event: unknown, node: AutomationFlowNode) => {
-      setNodes((current) => {
-        const updated = current.map((item) =>
-          item.id === node.id ? { ...item, position: node.position } : item,
-        );
-        updateEdgesFromNodes(updated as AutomationFlowNode[]);
-        return updated;
-      });
-      const meta = automationMapRef.current[node.id];
-      if (meta) {
-        automationMapRef.current[node.id] = { ...meta, position: node.position };
-      }
-      setLayoutDirty(true);
-      setSaveFeedback(null);
-    },
-    [setNodes, updateEdgesFromNodes],
-  );
-
-  const handleInit = useCallback((instance: ReactFlowInstance) => {
-    setReactFlowInstance(instance);
-  }, []);
-
-  const handleAutoLayout = useCallback(() => {
-    setNodes((current) => {
-      if (current.length === 0) {
-        return current;
-      }
-
-      const dagreGraph = new dagre.graphlib.Graph();
-      dagreGraph.setDefaultEdgeLabel(() => ({}));
-      dagreGraph.setGraph({
-        rankdir: 'LR',
-        nodesep: 220,
-        ranksep: 160,
-        marginx: 60,
-        marginy: 60,
-      });
-
-      current.forEach((node) => {
-        dagreGraph.setNode(node.id, { width: nodeWidth, height: nodeHeight });
-      });
-
-      edges.forEach((edge) => {
-        dagreGraph.setEdge(edge.source, edge.target);
-      });
-
-      dagre.layout(dagreGraph);
-
-      const changedNodes: AutomationFlowNode[] = [];
-      const nextNodes = current.map((node) => {
-        const dagreNode = dagreGraph.node(node.id) as { x: number; y: number } | undefined;
-        if (!dagreNode || !Number.isFinite(dagreNode.x) || !Number.isFinite(dagreNode.y)) {
-          return node;
-        }
-
-        const position = {
-          x: dagreNode.x - nodeWidth / 2,
-          y: dagreNode.y - nodeHeight / 2,
-        };
-
-        if (!node.position || node.position.x !== position.x || node.position.y !== position.y) {
-          changedNodes.push({ ...node, position });
-        }
-
-        const meta = automationMapRef.current[node.id];
-        if (meta) {
-          automationMapRef.current[node.id] = { ...meta, position };
-        }
-
-        return { ...node, position };
-      });
-
-      updateEdgesFromNodes(nextNodes as AutomationFlowNode[]);
-      if (changedNodes.length > 0) {
-        setLayoutDirty(true);
-        setSaveFeedback(null);
-      }
-      return nextNodes;
-    });
-  }, [edges, setNodes, updateEdgesFromNodes]);
-
-  const handleResetToDefaultOrder = useCallback(() => {
-    const order = initialOrderRef.current;
-    if (!order || order.length === 0) {
-      return;
-    }
-
-    const orderedItems: AutomationOverviewItem[] = order
-      .map((id, index) => {
-        const meta = automationMapRef.current[id];
-        if (!meta) {
-          return null;
-        }
-
-        const defaultPosition = defaultPositionsRef.current[id] ?? {
-          x: index * nodeSpacingX,
-          y: nodeStartY,
-        };
-
-        return {
-          ...meta,
-          position: defaultPosition,
-        } satisfies AutomationOverviewItem;
-      })
-      .filter((item): item is AutomationOverviewItem => Boolean(item));
-
-    const knownIds = new Set(order);
-    const additionalItems: AutomationOverviewItem[] = Object.values(automationMapRef.current)
-      .filter((item) => !knownIds.has(item.code))
-      .map((item, index) => ({
-        ...item,
-        position: {
-          x: (orderedItems.length + index) * nodeSpacingX,
-          y: nodeStartY,
-        },
-      }));
-
-    const combined = [...orderedItems, ...additionalItems];
-    if (combined.length === 0) {
-      return;
-    }
-
-    const nextNodes = buildNodes(combined);
-    setNodes(nextNodes);
-    updateEdgesFromNodes(nextNodes);
-    combined.forEach((item) => {
-      automationMapRef.current[item.code] = { ...automationMapRef.current[item.code], position: item.position };
-    });
-    setLayoutDirty(true);
-    setSaveFeedback(null);
-  }, [buildNodes, updateEdgesFromNodes]);
-
-  const handleSaveLayout = useCallback(async () => {
-    if (savingLayout) {
-      return;
-    }
-
-    const latestNodes = (reactFlowInstance?.getNodes?.() ?? nodes) as AutomationFlowNode[];
-    if (!latestNodes || latestNodes.length === 0) {
-      setSaveFeedback({ type: 'error', message: 'No workflow nodes available to save.' });
-      return;
-    }
-
-    setSavingLayout(true);
-    setSaveFeedback(null);
-
-    const success = await persistNodePositions(latestNodes);
-
-    setSavingLayout(false);
-
-    if (success) {
-      latestNodes.forEach((node) => {
-        const meta = automationMapRef.current[node.id];
-        if (meta) {
-          automationMapRef.current[node.id] = { ...meta, position: node.position };
-        }
-      });
-      setLayoutDirty(false);
-      setSaveFeedback({ type: 'success', message: 'Workflow arrangement saved.' });
-    } else {
-      setSaveFeedback({ type: 'error', message: 'Unable to save layout. Please try again.' });
-    }
-  }, [nodes, persistNodePositions, reactFlowInstance, savingLayout]);
-
-  const applyStatusUpdates = useCallback((updates: AutomationStatusUpdate[]) => {
-    if (!updates || updates.length === 0) {
-      return;
-    }
-
-    const updateMap = updates.reduce<Record<string, AutomationStatusUpdate>>((acc, item) => {
-      acc[item.code] = item;
-      return acc;
-    }, {});
-
-    setNodes((current) =>
-      current.map((node) => {
-        const update = updateMap[node.id];
-        if (!update) {
-          return node;
-        }
-
-        const nextStatus = mapStatusToNodeStatus(update.status ?? node.data.status);
-        return {
-          ...node,
-          data: {
-            ...node.data,
-            status: nextStatus,
-            statusLabel: update.statusLabel ?? node.data.statusLabel,
-            connected: typeof update.connected === 'boolean' ? update.connected : node.data.connected,
-          },
-        } satisfies AutomationFlowNode;
-      }),
-    );
-
-    Object.values(updateMap).forEach((update) => {
-      const meta = automationMapRef.current[update.code];
-      if (!meta) {
-        return;
-      }
-
-      automationMapRef.current[update.code] = {
-        ...meta,
-        status: toAutomationStatusValue(update.status, meta.status),
-        statusLabel: update.statusLabel ?? meta.statusLabel,
-        connected:
-          typeof update.connected === 'boolean' ? update.connected : meta.connected,
-      };
-    });
-  }, []);
-
-  const fetchAutomationStatuses = useCallback(async () => {
-    if (!user) {
-      return;
-    }
+  const loadAutomations = useCallback(async () => {
+    if (!user) return;
+    setLoading(true);
+    setError(null);
 
     try {
       const token = await user.getIdToken();
-      const response = await apiFetch('/automations/status', {
+      const response = await apiFetch('/automations', {
         headers: {
           Authorization: `Bearer ${token}`,
         },
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to refresh automation statuses (${response.status})`);
+        const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(payload?.message ?? 'Unable to load automations.');
       }
 
-      const payload = await response.json();
-      const updates = normalizeStatusPayload(payload);
-      applyStatusUpdates(updates);
+      const payload = (await response.json()) as { nodes: AutomationNode[] };
+      automationMapRef.current = payload.nodes.reduce<Record<string, AutomationNode>>((acc, node) => {
+        acc[node.code] = node;
+        return acc;
+      }, {});
+
+      const layoutPositions = buildGraphLayout(payload.nodes);
+      const flowNodes = buildFlowNodes(payload.nodes, layoutPositions);
+      const flowEdges = buildEdgesFromNodes(payload.nodes);
+
+      setNodes(flowNodes);
+      setEdges(flowEdges);
+      setLastRefreshed(new Date());
     } catch (err) {
-      console.error('Unable to refresh automation statuses', err);
+      const message = err instanceof Error ? err.message : 'Unable to load automations.';
+      console.error('Failed to load automations', err);
+      setError(message);
+      setNodes([]);
+      setEdges([]);
+    } finally {
+      setLoading(false);
     }
-  }, [applyStatusUpdates, user]);
-
-  useEffect(() => {
-    let active = true;
-
-    const fetchAutomations = async () => {
-      if (!user) {
-        setError(null);
-        setLoading(false);
-        return;
-      }
-
-      setLoading(true);
-      setError(null);
-
-      try {
-        const token = await user.getIdToken();
-        const response = await apiFetch('/automations', {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-
-        if (!response.ok) {
-          const data = (await response.json().catch(() => null)) as { message?: string } | null;
-          throw new Error(data?.message ?? 'Unable to load automations.');
-        }
-
-        const data = (await response.json()) as { nodes: AutomationNode[] };
-        if (!active) return;
-
-        const filtered = data.nodes
-          .filter((node) => node.code !== 'VPE')
-          .map<AutomationOverviewItem>((node) => ({
-            ...node,
-            shortDescription: simplifyDescription(node.description ?? ''),
-            position: extractPosition(node as unknown as Record<string, unknown>),
-          }))
-          .sort((a, b) => a.sequence - b.sequence);
-
-        refreshNodes(filtered);
-      } catch (err) {
-        if (!active) return;
-        const message = err instanceof Error ? err.message : 'Unable to load automations.';
-        console.error('Failed to load automations', err);
-        setError(message);
-        refreshNodes([]);
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
-      }
-    };
-
-    void fetchAutomations();
-
-    return () => {
-      active = false;
-    };
-  }, [user, refreshNodes]);
+  }, [buildFlowNodes, setEdges, setNodes, user]);
 
   useEffect(() => {
     if (!user) {
-      if (statusIntervalRef.current) {
-        window.clearInterval(statusIntervalRef.current);
-        statusIntervalRef.current = null;
-      }
+      setNodes([]);
+      setEdges([]);
+      setLoading(false);
       return;
     }
+    void loadAutomations();
+  }, [loadAutomations, setEdges, setNodes, user]);
 
-    void fetchAutomationStatuses();
+  const refreshStatuses = useCallback(async () => {
+    if (!user) return;
+    try {
+      const token = await user.getIdToken();
+      const response = await apiFetch('/automations/status', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        return;
+      }
+      const payload = (await response.json()) as { nodes: AutomationNode[] };
+      automationMapRef.current = payload.nodes.reduce<Record<string, AutomationNode>>((acc, node) => {
+        acc[node.code] = node;
+        return acc;
+      }, automationMapRef.current);
 
+      setNodes((current) =>
+        current.map((node) => {
+          const update = payload.nodes.find((candidate) => candidate.code === node.id);
+          if (!update) return node;
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              status: update.status,
+              statusLabel: update.statusLabel,
+              connected: update.connected,
+              lastRun: update.lastRun,
+            },
+          } satisfies AutomationFlowNode;
+        }),
+      );
+      setLastRefreshed(new Date());
+    } catch (err) {
+      console.error('Failed to refresh automation statuses', err);
+    }
+  }, [setNodes, user]);
+
+  useEffect(() => {
     if (statusIntervalRef.current) {
       window.clearInterval(statusIntervalRef.current);
+      statusIntervalRef.current = null;
     }
-
-    statusIntervalRef.current = window.setInterval(() => {
-      void fetchAutomationStatuses();
+    if (!user) {
+      return;
+    }
+    void refreshStatuses();
+    const timer = window.setInterval(() => {
+      void refreshStatuses();
     }, statusRefreshIntervalMs);
-
+    statusIntervalRef.current = timer;
     return () => {
-      if (statusIntervalRef.current) {
-        window.clearInterval(statusIntervalRef.current);
-        statusIntervalRef.current = null;
-      }
+      window.clearInterval(timer);
     };
-  }, [fetchAutomationStatuses, user]);
+  }, [refreshStatuses, user]);
 
   useEffect(() => {
-    setNodes((current) =>
-      current.map((node) => {
-        const execution = executionStates[node.id] ?? { status: 'idle' as const };
-        return {
-          ...node,
-          data: {
-            ...node.data,
-            executionStatus: execution.status,
-            executionMessage: execution.message ?? null,
-          },
-        } satisfies AutomationFlowNode;
-      }),
+    if (!selectedCode || !user) {
+      setDetailState((prev) => ({ ...prev, data: null, error: null, loading: false }));
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadDetail = async () => {
+      setDetailState({ loading: true, error: null, data: null });
+      try {
+        const token = await user.getIdToken();
+        const response = await apiFetch(`/automations/${selectedCode}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!response.ok) {
+          const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+          throw new Error(payload?.message ?? 'Unable to load automation details.');
+        }
+        const payload = (await response.json()) as { node: AutomationDetail };
+        if (!cancelled) {
+          setDetailState({ loading: false, error: null, data: payload.node });
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unable to load automation details.';
+        if (!cancelled) {
+          setDetailState({ loading: false, error: message, data: null });
+        }
+      }
+    };
+
+    void loadDetail();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCode, user]);
+
+  if (loading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-rose-200" />
+      </div>
     );
-  }, [executionStates, setNodes]);
+  }
 
-  useEffect(() => {
-    return () => {
-      Object.values(executionResetTimersRef.current).forEach((timerId) => {
-        window.clearTimeout(timerId);
-      });
-      executionResetTimersRef.current = {};
-      if (saveFeedbackTimeoutRef.current) {
-        window.clearTimeout(saveFeedbackTimeoutRef.current);
-        saveFeedbackTimeoutRef.current = null;
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!reactFlowInstance || nodes.length === 0 || initialFitDone) {
-      return;
-    }
-
-    reactFlowInstance.fitView({ padding: 0.35, duration: 600, minZoom: 0.4 });
-    setInitialFitDone(true);
-  }, [reactFlowInstance, nodes, initialFitDone]);
-
-  useEffect(() => {
-    if (!saveFeedback) {
-      return;
-    }
-
-    if (saveFeedbackTimeoutRef.current) {
-      window.clearTimeout(saveFeedbackTimeoutRef.current);
-    }
-
-    saveFeedbackTimeoutRef.current = window.setTimeout(() => {
-      setSaveFeedback(null);
-      saveFeedbackTimeoutRef.current = null;
-    }, saveFeedback.type === 'success' ? 3200 : 4600);
-
-    return () => {
-      if (saveFeedbackTimeoutRef.current) {
-        window.clearTimeout(saveFeedbackTimeoutRef.current);
-        saveFeedbackTimeoutRef.current = null;
-      }
-    };
-  }, [saveFeedback]);
-
-  return (
-    <div className="space-y-10 text-slate-100">
-      <motion.header
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.35 }}
-        className="space-y-3"
-      >
-        <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Automations</p>
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight text-white">Workflow Canvas</h1>
-          <p className="mt-2 max-w-2xl text-sm text-slate-400">
-            Visualize each SmartOps automation as an interconnected pipeline. Drag nodes to explore different
-            sequences and open any node to manage its details.
-          </p>
-        </div>
-      </motion.header>
-
-      <div className="relative h-[640px] w-full overflow-hidden rounded-3xl border border-slate-800/80 bg-slate-950/50 sm:h-[560px]">
-        {loading ? (
-          <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/80 backdrop-blur">
-            <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
-          </div>
-        ) : null}
-
-        {error ? (
-          <div className="absolute inset-x-0 top-0 z-30 m-6 rounded-2xl border border-rose-800/70 bg-rose-950/60 p-4 text-sm text-rose-200">
-            {error}
-          </div>
-        ) : null}
-
-        <div className="absolute right-5 top-5 z-30 flex flex-col items-end gap-3">
-          <div className="flex flex-col gap-2 md:flex-row">
-            <button
-              type="button"
-              onClick={handleResetToDefaultOrder}
-              disabled={nodes.length === 0}
-              className={`rounded-full border border-slate-700/70 bg-slate-900/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-200 shadow-lg shadow-black/40 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/70 md:min-w-[168px] ${
-                nodes.length === 0
-                  ? 'cursor-not-allowed opacity-60'
-                  : 'hover:border-rose-500/50 hover:text-rose-200'
-              }`}
-            >
-              Reset layout
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (nodes.length === 0) return;
-                handleAutoLayout();
-              }}
-              disabled={nodes.length === 0}
-              className={`rounded-full border border-slate-700/70 bg-slate-900/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-200 shadow-lg shadow-black/40 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/70 md:min-w-[168px] ${
-                nodes.length === 0
-                  ? 'cursor-not-allowed opacity-60'
-                  : 'hover:border-rose-500/50 hover:text-rose-200'
-              }`}
-            >
-              Auto arrange
-            </button>
-            <button
-              type="button"
-              onClick={handleSaveLayout}
-              disabled={nodes.length === 0 || savingLayout || !layoutDirty}
-              className={`rounded-full border border-rose-500/60 bg-rose-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-rose-100 shadow-lg shadow-black/40 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/70 md:min-w-[168px] ${
-                nodes.length === 0 || savingLayout || !layoutDirty
-                  ? 'cursor-not-allowed opacity-60'
-                  : 'hover:border-rose-400/80 hover:text-rose-50'
-              }`}
-            >
-              {savingLayout ? 'Saving…' : 'Save layout'}
-            </button>
-          </div>
-          {saveFeedback ? (
-            <div
-              className={`rounded-full px-4 py-1 text-xs font-medium uppercase tracking-[0.2em] ${
-                saveFeedback.type === 'success'
-                  ? 'bg-emerald-500/20 text-emerald-200'
-                  : 'bg-rose-500/10 text-rose-200'
-              }`}
-            >
-              {saveFeedback.message}
-            </div>
-          ) : null}
-        </div>
-
-        <ReactFlowProvider>
-          <ReactFlow
-            className="reactflow-dark"
-            nodes={nodes}
-            edges={edges}
-            onNodesChange={handleNodesChange}
-            onEdgesChange={onEdgesChange}
-            onNodeDragStop={handleNodeDragStop}
-            onInit={handleInit}
-            fitView
-            panOnScroll={false}
-            panOnDrag
-            zoomOnScroll
-            minZoom={0.3}
-            maxZoom={1.6}
-            nodesDraggable
-            nodeTypes={nodeTypes}
-            proOptions={{ hideAttribution: true }}
-            style={{ width: '100%', height: '100%' }}
-          >
-            <Background color="rgba(148, 163, 184, 0.2)" gap={28} />
-            {controlsVisible ? (
-              <>
-                <MiniMap
-                  className="!bg-slate-900/90 !text-slate-200"
-                  pannable
-                  zoomable
-                  maskColor="rgba(15, 23, 42, 0.92)"
-                  nodeColor={(node) => {
-                    const status = (node.data as AutomationNodeData | undefined)?.status;
-                    if (status === 'offline') return '#f87171';
-                    if (status === 'under-watch') return '#facc15';
-                    return '#34d399';
-                  }}
-                  nodeStrokeColor="rgba(148, 163, 184, 0.4)"
-                />
-                <Controls className="!border-none !bg-transparent" />
-              </>
-            ) : null}
-          </ReactFlow>
-        </ReactFlowProvider>
-
+  if (error) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
+        <p className="text-sm text-slate-300">{error}</p>
         <button
           type="button"
-          onClick={() => setControlsVisible((prev) => !prev)}
-          className="absolute bottom-5 left-5 z-30 rounded-full border border-slate-700/70 bg-slate-900/80 px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-200 shadow-lg shadow-black/40 transition hover:border-rose-500/40 hover:text-rose-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/70"
+          onClick={() => void loadAutomations()}
+          className="inline-flex items-center gap-2 rounded-full border border-rose-500/60 bg-rose-500/10 px-4 py-2 text-sm font-semibold text-rose-100 transition hover:bg-rose-500/20"
         >
-          {controlsVisible ? 'Hide controls' : 'Show controls'}
+          <RefreshCcw className="h-4 w-4" /> Retry
         </button>
-
-        {!loading && nodes.length === 0 && !error ? (
-          <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-400">
-            No automations found.
-          </div>
-        ) : null}
       </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="space-y-2">
+          <h1 className="text-2xl font-semibold text-white">Creative automation map</h1>
+          <p className="max-w-2xl text-sm text-slate-400">
+            Drag nodes into the order that reflects your production flow. Select any node to review its purpose, logs, and manual
+            controls.
+          </p>
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="text-right">
+            <span className="block text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-500">Last update</span>
+            <span className="text-sm font-medium text-slate-200">{lastUpdatedLabel}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => void refreshStatuses()}
+            className="inline-flex items-center gap-2 rounded-full border border-slate-800/70 bg-slate-900/70 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-800/70"
+          >
+            <RefreshCcw className="h-4 w-4" /> Refresh
+          </button>
+        </div>
+      </div>
+
+      <div className="relative h-[720px]">
+        <div className="reactflow-dark absolute inset-0 overflow-hidden rounded-3xl border border-slate-800/70 bg-slate-950/70">
+          <div className="pointer-events-none absolute right-5 top-5 z-10 flex flex-col items-end gap-2">
+            <button
+              type="button"
+              className="pointer-events-auto inline-flex items-center gap-2 rounded-full border border-slate-800/70 bg-slate-900/70 px-4 py-2 text-xs font-medium uppercase tracking-[0.24em] text-slate-300 transition hover:bg-slate-800/70"
+              onClick={() => setShowCanvasTools((prev) => !prev)}
+            >
+              {showCanvasTools ? 'Hide Canvas Tools' : 'Show Canvas Tools'}
+            </button>
+          </div>
+          <ReactFlow
+            className="reactflow-dark"
+            nodeTypes={nodeTypes}
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            fitView
+            fitViewOptions={{ padding: 0.24 }}
+            onNodeDragStop={handleNodeDragStop}
+            proOptions={{ hideAttribution: true }}
+            panOnScroll={false}
+            panOnDrag
+            selectionOnDrag
+            minZoom={0.5}
+            maxZoom={1.6}
+            zoomOnScroll
+            zoomOnPinch
+          >
+            {showCanvasTools ? (
+              <>
+                <MiniMap className="!bg-slate-950/80 !border !border-slate-800/60" />
+                <Controls className="!border !border-slate-800/60 !bg-slate-950/80" />
+              </>
+            ) : null}
+            <Background gap={24} color="rgba(148, 163, 184, 0.12)" />
+          </ReactFlow>
+        </div>
+      </div>
+      <section className="grid gap-6 rounded-3xl border border-slate-800/70 bg-slate-950/70 p-6">
+        <div className="space-y-2">
+          <h2 className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-500">Workflow health</h2>
+          <p className="text-sm text-slate-300">
+            Each automation hands off to the next stage: ideas → schedules → assets → publishing → reporting.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+          <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/5 p-4">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-200">Operational</span>
+            <p className="mt-1 text-2xl font-semibold text-emerald-100">{statusSummary.operational}</p>
+          </div>
+          <div className="rounded-2xl border border-sky-500/25 bg-sky-500/5 p-4">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-200">Monitoring</span>
+            <p className="mt-1 text-2xl font-semibold text-sky-100">{statusSummary.monitoring}</p>
+          </div>
+          <div className="rounded-2xl border border-amber-500/25 bg-amber-500/5 p-4">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-amber-200">Warnings</span>
+            <p className="mt-1 text-2xl font-semibold text-amber-100">{statusSummary.warning}</p>
+          </div>
+          <div className="rounded-2xl border border-rose-500/25 bg-rose-500/5 p-4">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-rose-200">Blocked</span>
+            <p className="mt-1 text-2xl font-semibold text-rose-100">{statusSummary.error}</p>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-800/60 bg-slate-900/50 p-5 text-sm leading-relaxed text-slate-300">
+          <p>• AI Content Planner and Engagement Scheduler keep campaigns fresh and timed to audience peaks.</p>
+          <p className="mt-2">• Media Fetcher moves approved assets into the SmartOps media library and retries Dropbox when offline.</p>
+          <p className="mt-2">• Publishing and reporting nodes execute automatically once upstream checks pass.</p>
+        </div>
+      </section>
+
+      <DetailModal
+        open={Boolean(selectedCode)}
+        detail={detailState.data}
+        state={detailState}
+        onClose={() => setSelectedCode(null)}
+        onRun={(automationCode) => void handleRunAutomation(automationCode)}
+      />
     </div>
+  );
+}
+
+export default function AutomationsPage() {
+  return (
+    <ReactFlowProvider>
+      <AutomationsCanvas />
+    </ReactFlowProvider>
   );
 }

@@ -1,191 +1,236 @@
+import { promises as fs } from 'fs';
+import path from 'path';
 import OpenAI from 'openai';
+import { Prisma, type Automation, type Execution } from '@prisma/client';
 import { prisma } from '../auth/prisma.client.js';
+import { dropboxService } from '../dropbox/dropbox.service.js';
+
+type AutomationStatus = 'operational' | 'monitoring' | 'warning' | 'error';
+type AutomationKind = 'webhook' | 'media-fetcher';
 
 export class AutomationError extends Error {
   readonly status: number;
   readonly details?: unknown;
+  readonly severity: AutomationStatus;
 
-  constructor(message: string, status = 500, details?: unknown) {
+  constructor(message: string, status = 500, details?: unknown, severity: AutomationStatus = 'error') {
     super(message);
     this.name = 'AutomationError';
     this.status = status;
     this.details = details;
+    this.severity = severity;
   }
 }
 
-export interface AutomationNodeDefinition {
+declare const fetch: typeof globalThis.fetch;
+
+const MEDIA_ROOT = process.env.MEDIA_LIBRARY_ROOT || '/app/media';
+
+interface AutomationBlueprint {
   code: string;
-  step: string;
-  title: string;
+  name: string;
+  headline: string;
   description: string;
   function: string;
   aiAssist: string;
-  status: 'operational' | 'monitor' | 'upcoming';
+  deliverables: string[];
+  dependencies: string[];
   statusLabel: string;
   sequence: number;
-  dependencies: string[];
-  deliverables: string[];
-  webhookPath: string;
+  kind: AutomationKind;
+  webhookPath?: string;
+  metadata?: Prisma.JsonObject;
 }
 
-export interface AutomationNodeView extends Omit<AutomationNodeDefinition, 'webhookPath'> {
-  webhookPath: string;
+export interface AutomationNodeView {
+  code: string;
+  name: string;
+  headline: string;
+  description: string;
+  function: string;
+  aiAssist: string;
+  deliverables: string[];
+  dependencies: string[];
+  status: AutomationStatus;
+  statusLabel: string;
+  sequence: number;
+  kind: AutomationKind;
+  webhookPath?: string;
   webhookUrl: string | null;
   connected: boolean;
+  lastRun: string | null;
   position?: { x: number; y: number } | null;
   positionX?: number | null;
   positionY?: number | null;
   layout?: { x: number; y: number } | null;
 }
 
-export interface AutomationRunResult {
-  code: string;
-  ok: boolean;
-  httpStatus: number | null;
-  statusText: string | null;
-  webhookUrl: string | null;
-  startedAt: string;
-  finishedAt: string;
-  durationMs: number;
-  requestPayload: unknown;
-  responseBody: unknown;
-  responseHeaders: Record<string, string>;
-  error?: string;
+export interface AutomationExecutionView {
+  id: number;
+  status: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  logs: string | null;
+  result: unknown;
 }
 
-const automationNodes: AutomationNodeDefinition[] = [
+export interface AutomationNodeDetails extends AutomationNodeView {
+  metadata: Record<string, unknown> | null;
+  executions: AutomationExecutionView[];
+}
+
+export interface AutomationRunCascadeEntry {
+  automation: AutomationNodeView;
+  execution: AutomationExecutionView;
+}
+
+export interface AutomationRunResponse {
+  automation: AutomationNodeView;
+  execution: AutomationExecutionView;
+  cascade: AutomationRunCascadeEntry[];
+}
+
+const automationBlueprints: AutomationBlueprint[] = [
   {
-    code: 'CCC',
-    step: 'Content Calendar Creation',
-    title: 'AI Content Planner',
-    description: 'Inputs briefs and brand data to propose a weekly narrative arc with per-platform messaging.',
-    function: 'Generates channel-ready post calendars and creative prompts.',
-    aiAssist: 'Strategic ideation using OpenAI for voice, hooks, and CTA matching.',
-    status: 'operational',
-    statusLabel: 'Live · Updated daily with the latest briefs.',
-    sequence: 1,
+    code: 'ACP',
+    name: 'AI Content Planner',
+    headline: 'Ideation',
+    description:
+      'Generates new social-media post ideas based on creative briefs or trending topics for every active client.',
+    function:
+      'Produces JSON-formatted campaign ideas complete with hooks, suggested assets, and CTA guidance.',
+    aiAssist: 'OpenAI analyses brand tone, angles, and trend fit to deliver ready-to-review concepts.',
+    deliverables: ['Post idea manifest', 'Trend inspiration digest', 'Brief synopsis'],
     dependencies: [],
-    deliverables: ['Campaign calendar', 'Concept moodboard', 'Copy angle matrix'],
-    webhookPath: '/workflow/ccc',
+    statusLabel: 'Runs daily or on-demand from latest briefs.',
+    sequence: 1,
+    kind: 'webhook',
+    webhookPath: '/workflow/acp',
   },
   {
-    code: 'VPE',
-    step: 'Video Production & Editing',
-    title: 'Hybrid Video Team',
-    description: 'Pairs human editors with the AI caption assistant to accelerate turnaround.',
-    function: 'Produces ready-to-upload clips with optimized captions and aspect ratios.',
-    aiAssist: 'Caption drafts and hook variations are generated via OpenAI for review.',
-    status: 'operational',
-    statusLabel: 'On track · Average turnaround 6h.',
+    code: 'ENS',
+    name: 'Engagement Scheduler',
+    headline: 'Timing Intelligence',
+    description:
+      'Finds optimal posting windows for approved ideas by analysing audience analytics and historic performance.',
+    function: 'Builds a per-client, per-platform schedule ready for automation rules.',
+    aiAssist: 'OpenAI summarises timing rationales, risk watch-outs, and experiment ideas.',
+    deliverables: ['Posting window calendar', 'Platform timing insights'],
+    dependencies: ['ACP'],
+    statusLabel: 'Syncs after each planning run with refreshed analytics.',
     sequence: 2,
-    dependencies: ['CCC'],
-    deliverables: ['Edited video masters', 'Auto-caption files', 'Thumbnail concepts'],
-    webhookPath: '/workflow/vpe',
+    kind: 'webhook',
+    webhookPath: '/workflow/ens',
   },
   {
-    code: 'USP',
-    step: 'Upload Schedule Planning',
-    title: 'Scheduler Engine',
-    description: 'Analyses engagement trends to propose optimal posting windows across markets.',
-    function: 'Calculates best publish times per asset and queues reminders.',
-    aiAssist: 'OpenAI summarises engagement anomalies and suggests experiments.',
-    status: 'monitor',
-    statusLabel: 'Monitoring · Needs fresh engagement dataset.',
+    code: 'MDF',
+    name: 'Media Fetcher',
+    headline: 'Asset Ingestion',
+    description:
+      'Fetches approved marketing videos by scanning connected Dropbox folders, downloading only new assets, and staging them on the VPS.',
+    function:
+      'Polls Dropbox 3–4 times daily, stores files under /app/media/{client}/{month}, and writes metadata into PostgreSQL.',
+    aiAssist: 'Flags missing assets or naming mismatches so operators can resolve gaps before scheduling.',
+    deliverables: [
+      'Local media archive (/app/media/{client}/{month})',
+      'PostgreSQL media metadata (video_path, client, status, created_at)',
+      'Dropbox retry logs when unavailable',
+    ],
+    dependencies: ['ENS'],
+    statusLabel: 'Pauses gracefully and retries every 30 minutes if Dropbox is unreachable.',
     sequence: 3,
-    dependencies: ['VPE'],
-    deliverables: ['Posting matrix', 'Audience overlap report'],
-    webhookPath: '/workflow/usp',
+    kind: 'media-fetcher',
+    metadata: {
+      dropboxPaths: ['/Clients'],
+    },
   },
   {
-    code: 'UMS',
-    step: 'Upload Management System',
-    title: 'Content Manager Module',
-    description: 'Securely stores final assets with captions and metadata ready for deployment.',
-    function: 'Maintains the upload queue and version control for creative assets.',
-    aiAssist: 'Metadata validation and tone checks executed with OpenAI.',
-    status: 'operational',
-    statusLabel: 'Stable · Queue capacity at 68%.',
+    code: 'ACO',
+    name: 'Account Connector',
+    headline: 'Credential Management',
+    description: 'Ensures SmartOps maintains valid TikTok OAuth tokens for secure publishing.',
+    function: 'Validates and refreshes TikTok tokens daily and distributes credentials downstream.',
+    aiAssist: 'Summarises token health, expiry risks, and remediation steps for operators.',
+    deliverables: ['Token validity dashboard updates', 'Automatic refresh audit log', 'Credential bundles for publishers'],
+    dependencies: ['MDF'],
+    statusLabel: 'Keeps TikTok OAuth lifecycle healthy across automations.',
     sequence: 4,
-    dependencies: ['USP'],
-    deliverables: ['Upload-ready bundles', 'Metadata QA checklist'],
-    webhookPath: '/workflow/ums',
+    kind: 'webhook',
+    webhookPath: '/workflow/aco',
   },
   {
-    code: 'AL',
-    step: 'Account Linking',
-    title: 'TikTok Auth Connector',
-    description: 'Handles OAuth 2.0 and token storage per client workspace.',
-    function: 'Ensures tokens are refreshed and scoped correctly for publishing.',
-    aiAssist: 'OpenAI drafts security notifications and scope explanations.',
-    status: 'operational',
-    statusLabel: 'Healthy · Tokens refreshed automatically.',
+    code: 'ATR',
+    name: 'Automation Rules',
+    headline: 'Publishing Guardrails',
+    description: 'Applies SmartOps logic and pacing constraints to ensure compliant scheduling.',
+    function:
+      'Validates cadence, asset freshness, and queue eligibility before approving posts for publishing.',
+    aiAssist: 'Explains rule denials, highlights risky clusters, and recommends adjustments.',
+    deliverables: ['Eligibility decision logs', 'Prioritisation scores', 'Approved queue for Publisher'],
+    dependencies: ['ACO'],
+    statusLabel: 'Guards publishing logic with configurable constraints.',
     sequence: 5,
-    dependencies: ['UMS'],
-    deliverables: ['Active OAuth tokens', 'Security audit logs'],
-    webhookPath: '/workflow/al',
+    kind: 'webhook',
+    webhookPath: '/workflow/atr',
   },
   {
-    code: 'AR',
-    step: 'Automation Rules',
-    title: 'Workflow Automation Engine',
-    description: 'Evaluates triggers, fallbacks, and notifications before pushing to runtime.',
-    function: 'Determines upload eligibility, handles retries, and routes alerts.',
-    aiAssist: 'Anomaly narratives and post-mortems generated by OpenAI.',
-    status: 'monitor',
-    statusLabel: 'Monitoring · Reviewing recent retry spikes.',
+    code: 'PUB',
+    name: 'Publisher',
+    headline: 'Automated Launch',
+    description: 'Publishes approved videos to TikTok according to AI-determined schedules.',
+    function: 'Executes posts, updates SmartOps statuses, and writes operator logs.',
+    aiAssist: 'Drafts captions, monitors live errors, and summarises runs.',
+    deliverables: ['TikTok post confirmations', 'Publishing status updates', 'Execution summaries'],
+    dependencies: ['ATR'],
+    statusLabel: 'Executes the Engagement Scheduler timeline with compliance safeguards.',
     sequence: 6,
-    dependencies: ['AL'],
-    deliverables: ['Rule manifests', 'Escalation briefs'],
-    webhookPath: '/workflow/ar',
+    kind: 'webhook',
+    webhookPath: '/workflow/pub',
   },
   {
-    code: 'WAU',
-    step: 'Weekly Auto Uploads',
-    title: 'Scheduler Runtime Node',
-    description: 'Executes scheduled posts via the TikTok API with health checks.',
-    function: 'Publishes approved assets and tracks outcome confirmations.',
-    aiAssist: 'OpenAI crafts failure remediation guidance for the ops team.',
-    status: 'monitor',
-    statusLabel: 'Monitoring · Awaiting green-light from Automation Rules.',
+    code: 'PTR',
+    name: 'Performance Tracker',
+    headline: 'Analytics & Reporting',
+    description: 'Collects TikTok performance analytics, produces weekly dashboards, and distributes Dropbox exports.',
+    function: 'Aggregates engagement metrics, pushes dashboard data, and writes Dropbox reports.',
+    aiAssist: 'Generates executive-ready commentary when the OpenAI key is active.',
+    deliverables: [
+      'Weekly analytics reports (/reports dashboard)',
+      'Dropbox exports (/Reports/{client}/{month}/)',
+      'OpenAI-powered performance commentary',
+    ],
+    dependencies: ['PUB'],
+    statusLabel: 'Refreshes weekly analytics with commentary.',
     sequence: 7,
-    dependencies: ['AR'],
-    deliverables: ['Deployment receipts', 'Fallback queue status'],
-    webhookPath: '/workflow/wau',
-  },
-  {
-    code: 'MAO',
-    step: 'Monitoring & Optimization',
-    title: 'Analytics Engine',
-    description: 'Collects performance metrics and distributes actionable intelligence.',
-    function: 'Generates weekly optimisation reports and experimentation prompts.',
-    aiAssist: 'Insight summaries, next-best-actions, and scripts are authored with OpenAI.',
-    status: 'upcoming',
-    statusLabel: 'Scheduled · Next sync Friday 09:00.',
-    sequence: 8,
-    dependencies: ['WAU'],
-    deliverables: ['Performance dashboard', 'Optimisation brief'],
-    webhookPath: '/workflow/mao',
+    kind: 'webhook',
+    webhookPath: '/workflow/ptr',
   },
 ];
+
+const blueprintMap = new Map(automationBlueprints.map((blueprint) => [blueprint.code, blueprint]));
+
+const ensureDirectory = async (targetPath: string) => {
+  await fs.mkdir(targetPath, { recursive: true });
+};
 
 const resolveN8nBaseUrl = (): string | null => {
   const raw = process.env.N8N_BASE_URL;
   if (!raw || raw.trim().length === 0) {
     return null;
   }
-
-  const normalized = raw.trim().endsWith('/') ? raw.trim() : `${raw.trim()}/`;
-  return normalized;
+  return raw.trim().endsWith('/') ? raw.trim() : `${raw.trim()}/`;
 };
 
-const resolveWebhookUrl = (path: string): string | null => {
+const resolveWebhookUrl = (pathSegment?: string): string | null => {
+  if (!pathSegment) {
+    return null;
+  }
   const base = resolveN8nBaseUrl();
   if (!base) {
     return null;
   }
-
+  const normalizedPath = pathSegment.startsWith('/') ? pathSegment.slice(1) : pathSegment;
   try {
-    const normalizedPath = path.startsWith('/') ? path.slice(1) : path;
     return new URL(normalizedPath, base).toString();
   } catch (error) {
     console.error('Failed to resolve n8n webhook URL', error);
@@ -203,26 +248,12 @@ const resolveBasicAuthHeader = (): string | null => {
   const password = process.env.N8N_BASIC_AUTH_PASSWORD;
 
   if (!user || !password) {
-    console.warn('n8n basic auth is marked active, but credentials are missing. Skipping Authorization header.');
+    console.warn('n8n basic auth marked active but credentials are missing.');
     return null;
   }
 
   const token = Buffer.from(`${user}:${password}`).toString('base64');
   return `Basic ${token}`;
-};
-
-const serializePayload = (payload: unknown): string | undefined => {
-  if (payload === undefined) {
-    return undefined;
-  }
-
-  try {
-    return JSON.stringify(payload);
-  } catch (error) {
-    throw new AutomationError('Unable to serialise the provided payload for the n8n webhook.', 400, {
-      cause: error instanceof Error ? error.message : 'Unknown serialization error',
-    });
-  }
 };
 
 const getOpenAIClient = () => {
@@ -233,40 +264,580 @@ const getOpenAIClient = () => {
   return new OpenAI({ apiKey });
 };
 
+const normaliseAutomationStatus = (status: string | null | undefined): AutomationStatus => {
+  if (!status) return 'operational';
+  const normalized = status.toLowerCase();
+  if (normalized.includes('monitor')) {
+    return 'monitoring';
+  }
+  if (normalized.includes('warn') || normalized.includes('watch')) {
+    return 'warning';
+  }
+  if (normalized.includes('error') || normalized.includes('down') || normalized.includes('offline')) {
+    return 'error';
+  }
+  return 'operational';
+};
+
+const mapExecution = (execution: Execution): AutomationExecutionView => ({
+  id: execution.id,
+  status: execution.status,
+  startedAt: execution.startedAt ? execution.startedAt.toISOString() : null,
+  finishedAt: execution.finishedAt ? execution.finishedAt.toISOString() : null,
+  logs: execution.logs,
+  result: execution.result,
+});
+
+const isJsonObject = (
+  value: Prisma.JsonValue | null | undefined,
+): value is Prisma.JsonObject => typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const mergeJsonMetadata = (
+  existing: Prisma.JsonValue | null | undefined,
+  next: Prisma.JsonObject,
+): Prisma.JsonObject => ({
+  ...(isJsonObject(existing) ? existing : {}),
+  ...next,
+});
+
+const computeMetadata = (blueprint: AutomationBlueprint): Prisma.JsonObject => ({
+  headline: blueprint.headline,
+  deliverables: blueprint.deliverables,
+  dependencies: blueprint.dependencies,
+  statusLabel: blueprint.statusLabel,
+  sequence: blueprint.sequence,
+  aiAssist: blueprint.aiAssist,
+  function: blueprint.function,
+  ...(blueprint.metadata ?? {}),
+});
+
+const buildMetadataRecord = (
+  automationMetadata: Prisma.JsonValue | null | undefined,
+  blueprint: AutomationBlueprint,
+): Record<string, unknown> => ({
+  ...computeMetadata(blueprint),
+  ...(isJsonObject(automationMetadata) ? automationMetadata : {}),
+});
+
+const createSummaryMetadata = (summary: string): Prisma.JsonObject => ({
+  lastSummary: summary,
+});
+
+const seedAutomations = async () => {
+  const records = await prisma.automation.findMany();
+  const recordMap = new Map(records.map((record) => [record.code, record]));
+
+  for (const blueprint of automationBlueprints) {
+    const existing = recordMap.get(blueprint.code);
+    const webhookUrl = resolveWebhookUrl(blueprint.webhookPath) ?? existing?.webhookUrl ?? null;
+    const metadata = mergeJsonMetadata(existing?.metadata, computeMetadata(blueprint));
+
+    if (existing) {
+      await prisma.automation.update({
+        where: { id: existing.id },
+        data: {
+          name: blueprint.name,
+          description: blueprint.description,
+          kind: blueprint.kind,
+          webhookUrl,
+          metadata,
+        },
+      });
+    } else {
+      await prisma.automation.create({
+        data: {
+          code: blueprint.code,
+          name: blueprint.name,
+          description: blueprint.description,
+          status: 'operational',
+          kind: blueprint.kind,
+          webhookUrl,
+          metadata,
+        },
+      });
+    }
+  }
+};
+
+const loadAutomationsWithLastRun = async () => {
+  await seedAutomations();
+  const automations = await prisma.automation.findMany({
+    include: {
+      executions: {
+        orderBy: { startedAt: 'desc' },
+        take: 1,
+      },
+    },
+  });
+  return new Map(automations.map((automation) => [automation.code, automation]));
+};
+
+const sanitizeSegment = (segment: string | null | undefined, fallback: string): string => {
+  const raw = segment?.trim();
+  if (!raw) return fallback;
+  return raw.replace(/[^a-zA-Z0-9-_]/g, '-');
+};
+
+const parseDropboxPath = (folderPath: string) => {
+  const segments = folderPath.split('/').filter(Boolean);
+  const client = sanitizeSegment(segments[1], 'general');
+  const month = sanitizeSegment(segments[2], 'unassigned');
+  return { client, month };
+};
+
+const downloadMediaAssets = async (
+  created: { dropboxId: string; fileName: string; folderPath: string }[],
+): Promise<{ downloaded: number; files: Prisma.JsonObject[] }> => {
+  if (created.length === 0) {
+    return { downloaded: 0, files: [] };
+  }
+
+  const results: Prisma.JsonObject[] = [];
+
+  for (const video of created) {
+    try {
+      const { buffer } = await dropboxService.downloadFile(video.dropboxId);
+      const { client, month } = parseDropboxPath(video.folderPath);
+      const targetDir = path.join(MEDIA_ROOT, client, month);
+      await ensureDirectory(targetDir);
+
+      const localPath = path.join(targetDir, video.fileName);
+      await fs.writeFile(localPath, buffer);
+
+      await prisma.mediaAsset.upsert({
+        where: { dropboxId: video.dropboxId },
+        update: {
+          client,
+          month,
+          videoPath: localPath,
+          status: 'downloaded',
+          fileName: video.fileName,
+        },
+        create: {
+          dropboxId: video.dropboxId,
+          client,
+          month,
+          videoPath: localPath,
+          status: 'downloaded',
+          fileName: video.fileName,
+        },
+      });
+
+      results.push({
+        dropboxId: video.dropboxId,
+        fileName: video.fileName,
+        localPath,
+        client,
+        month,
+      });
+    } catch (error) {
+      console.error('Failed to download Dropbox media asset', video.dropboxId, error);
+      results.push({
+        dropboxId: video.dropboxId,
+        fileName: video.fileName,
+        error: error instanceof Error ? error.message : 'unknown error',
+      });
+    }
+  }
+
+  const successfulDownloads = results.filter((item) => !('error' in item));
+
+  return {
+    downloaded: successfulDownloads.length,
+    files: results,
+  };
+};
+
+const runMediaFetcher = async (
+  blueprint: AutomationBlueprint,
+  { scheduleRetry }: { scheduleRetry: (delayMs: number) => void },
+): Promise<{
+  status: AutomationStatus;
+  summary: string;
+  result: Prisma.JsonObject;
+  logs: string;
+}> => {
+  const dropboxPaths = Array.isArray(blueprint.metadata?.dropboxPaths)
+    ? (blueprint.metadata?.dropboxPaths as string[])
+    : ['/'];
+
+  const downloads: Prisma.JsonObject[] = [];
+  let totalNew = 0;
+
+  for (const pathCandidate of dropboxPaths) {
+    let syncResult;
+    try {
+      syncResult = await dropboxService.syncFolders(pathCandidate);
+    } catch (error) {
+      scheduleRetry(30 * 60 * 1000);
+      throw new AutomationError(
+        'Dropbox is unreachable. Monitoring connection and retrying in 30 minutes.',
+        503,
+        {
+          cause: error instanceof Error ? error.message : 'unknown dropbox error',
+          path: pathCandidate,
+        },
+        'warning',
+      );
+    }
+    totalNew += syncResult.newFiles;
+    const created = syncResult.created.map((video) => ({
+      dropboxId: video.dropboxId,
+      fileName: video.fileName,
+      folderPath: video.folderPath,
+    }));
+    const downloadResult = await downloadMediaAssets(created);
+    downloads.push({
+      path: pathCandidate,
+      downloaded: downloadResult.downloaded,
+      files: downloadResult.files,
+    });
+  }
+
+  return {
+    status: 'operational' as AutomationStatus,
+    summary: totalNew > 0 ? `${totalNew} new video(s) ingested from Dropbox.` : 'No new videos detected.',
+    result: {
+      totalNew,
+      downloads,
+    } as Prisma.JsonObject,
+    logs:
+      totalNew > 0
+        ? downloads
+            .flatMap((item) => (Array.isArray(item.files) ? item.files : []))
+            .map((file) => JSON.stringify(file))
+            .join('\n')
+        : 'Checked Dropbox folders – no new media found.',
+  };
+};
+
+const runWebhookAutomation = async (
+  blueprint: AutomationBlueprint,
+  payload?: unknown,
+): Promise<{
+  status: AutomationStatus;
+  summary: string;
+  result: Prisma.JsonObject;
+  logs: string;
+}> => {
+  const webhookUrl = resolveWebhookUrl(blueprint.webhookPath);
+  if (!webhookUrl) {
+    throw new AutomationError(
+      'n8n base URL is not configured. Monitoring until the endpoint becomes available.',
+      503,
+      undefined,
+      'monitoring',
+    );
+  }
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const authHeader = resolveBasicAuthHeader();
+  if (authHeader) {
+    headers.Authorization = authHeader;
+  }
+
+  const body = payload === undefined ? undefined : JSON.stringify(payload);
+  const startedAt = Date.now();
+  let response: Response;
+
+  try {
+    response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers,
+      body,
+    });
+  } catch (error) {
+    throw new AutomationError(
+      'Unable to contact n8n webhook. Monitoring connectivity before retrying.',
+      503,
+      { cause: error instanceof Error ? error.message : 'Unknown fetch error' },
+      'monitoring',
+    );
+  }
+
+  const duration = Date.now() - startedAt;
+  const contentType = response.headers.get('content-type') ?? '';
+  let responseBody: unknown = null;
+
+  if (contentType.includes('application/json')) {
+    responseBody = await response.json().catch(() => null);
+  } else {
+    const text = await response.text().catch(() => null);
+    responseBody = text && text.length > 0 ? text : null;
+  }
+
+  const logs = [`Webhook: ${webhookUrl}`, `Status: ${response.status}`, `Duration: ${duration}ms`].join('\n');
+
+  if (!response.ok) {
+    const severity: AutomationStatus = response.status >= 500 ? 'warning' : 'monitoring';
+    throw new AutomationError(`n8n responded with status ${response.status}`, 502, {
+      responseBody,
+    }, severity);
+  }
+
+  return {
+    status: 'operational',
+    summary: `Webhook executed successfully in ${duration}ms`,
+    result: { responseBody, status: response.status } as Prisma.JsonObject,
+    logs,
+  };
+};
+
+const updateAutomationStatus = async (
+  automation: Automation,
+  status: AutomationStatus,
+  summary: string,
+) => {
+  await prisma.automation.update({
+    where: { id: automation.id },
+    data: {
+      status,
+      lastRun: new Date(),
+      metadata: mergeJsonMetadata(automation.metadata, createSummaryMetadata(summary)),
+    },
+  });
+};
+
+const toNodeView = (
+  blueprint: AutomationBlueprint,
+  automation: Automation,
+  layout: { x: number; y: number } | null,
+): AutomationNodeView => {
+  const lastRun = automation.lastRun ? automation.lastRun.toISOString() : null;
+  const status = normaliseAutomationStatus(automation.status);
+  const metadata = isJsonObject(automation.metadata) ? automation.metadata : null;
+
+  return {
+    code: automation.code,
+    name: blueprint.name,
+    headline: blueprint.headline,
+    description: automation.description,
+    function: blueprint.function,
+    aiAssist: blueprint.aiAssist,
+    deliverables: blueprint.deliverables,
+    dependencies: blueprint.dependencies,
+    status,
+    statusLabel:
+      metadata && typeof metadata.lastSummary === 'string'
+        ? (metadata.lastSummary as string)
+        : blueprint.statusLabel,
+    sequence: blueprint.sequence,
+    kind: blueprint.kind,
+    webhookPath: blueprint.webhookPath,
+    webhookUrl: automation.webhookUrl,
+    connected: Boolean(automation.webhookUrl) || blueprint.kind === 'media-fetcher',
+    lastRun,
+    position: layout,
+    positionX: layout?.x ?? null,
+    positionY: layout?.y ?? null,
+    layout,
+  } satisfies AutomationNodeView;
+};
+
+const dependencyGraph = (() => {
+  const graph = new Map<string, Set<string>>();
+  for (const blueprint of automationBlueprints) {
+    for (const dependency of blueprint.dependencies) {
+      if (!graph.has(dependency)) {
+        graph.set(dependency, new Set());
+      }
+      graph.get(dependency)!.add(blueprint.code);
+    }
+  }
+  return graph;
+})();
+
+const computeReachableCodes = (start: string): Set<string> => {
+  const reachable = new Set<string>([start]);
+  const queue: string[] = [start];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    const dependents = dependencyGraph.get(current);
+    if (!dependents) continue;
+    for (const next of dependents) {
+      if (!reachable.has(next)) {
+        reachable.add(next);
+        queue.push(next);
+      }
+    }
+  }
+  return reachable;
+};
+
+const runAutomationStep = async ({
+  blueprint,
+  automation,
+  payload,
+  source,
+  scheduleRetry,
+}: {
+  blueprint: AutomationBlueprint;
+  automation: Automation;
+  payload?: unknown;
+  source: string;
+  scheduleRetry: (delayMs: number) => void;
+}): Promise<{ automation: AutomationNodeView; execution: AutomationExecutionView }> => {
+  const execution = await prisma.execution.create({
+    data: {
+      automationId: automation.id,
+      status: 'running',
+      startedAt: new Date(),
+    },
+  });
+
+  try {
+    const result: {
+      status: AutomationStatus;
+      summary: string;
+      result: Prisma.JsonObject;
+      logs: string;
+    } =
+      blueprint.kind === 'media-fetcher'
+        ? await runMediaFetcher(blueprint, { scheduleRetry })
+        : await runWebhookAutomation(blueprint, payload);
+
+    const logsWithSource = result.logs
+      ? `${result.logs}\nTriggered by: ${source}.`
+      : `Triggered by: ${source}.`;
+
+    const completedExecution = await prisma.execution.update({
+      where: { id: execution.id },
+      data: {
+        status: 'success',
+        finishedAt: new Date(),
+        logs: logsWithSource,
+        result: result.result,
+      },
+    });
+
+    await updateAutomationStatus(automation, result.status, result.summary);
+
+    const freshAutomation = await prisma.automation.findUnique({
+      where: { id: automation.id },
+      include: {
+        executions: {
+          orderBy: { startedAt: 'desc' },
+          take: 1,
+        },
+      },
+    });
+
+    if (!freshAutomation) {
+      throw new AutomationError('Automation record disappeared after execution.', 500);
+    }
+
+    const layout: { x: number; y: number } | null = null;
+    return {
+      automation: toNodeView(blueprint, freshAutomation, layout),
+      execution: mapExecution(completedExecution),
+    } satisfies { automation: AutomationNodeView; execution: AutomationExecutionView };
+  } catch (error) {
+    const finishedAt = new Date();
+    const message = error instanceof Error ? error.message : 'Unknown automation failure';
+    const severity = error instanceof AutomationError ? error.severity : 'error';
+
+      await prisma.execution.update({
+        where: { id: execution.id },
+        data: {
+          status: 'error',
+          finishedAt,
+          logs:
+            error instanceof Error && error.stack
+              ? `${error.stack}\nSource: ${source}.`
+              : `${message}\nSource: ${source}.`,
+          result: { error: message } as Prisma.JsonObject,
+        },
+      });
+
+      await prisma.automation.update({
+        where: { id: automation.id },
+        data: {
+          status: severity,
+          lastRun: finishedAt,
+          metadata: mergeJsonMetadata(automation.metadata, createSummaryMetadata(message)),
+        },
+      });
+
+    if (error instanceof AutomationError) {
+      throw error;
+    }
+
+    throw new AutomationError(message, 500, undefined, severity);
+  }
+};
+
 export const automationsService = {
   async listNodes(userId?: string | null): Promise<AutomationNodeView[]> {
-    let layoutMap = new Map<string, { x: number; y: number }>();
+    const automationMap = await loadAutomationsWithLastRun();
 
+    let layoutMap = new Map<string, { x: number; y: number }>();
     if (userId) {
       try {
-        const layouts = await prisma.automationLayout.findMany({
-          where: { userId },
-        });
+        const layouts = await prisma.automationLayout.findMany({ where: { userId } });
         layoutMap = new Map(
-          layouts.map((layout) => [
-            layout.automationCode,
-            { x: layout.positionX, y: layout.positionY },
-          ]),
+          layouts.map((layout) => [layout.automationCode, { x: layout.positionX, y: layout.positionY }]),
         );
       } catch (error) {
         console.error('Failed to load automation layouts for user', userId, error);
       }
     }
 
-    return automationNodes.map((node) => {
-      const webhookUrl = resolveWebhookUrl(node.webhookPath);
-      const savedPosition = layoutMap.get(node.code) ?? null;
+    const nodes: AutomationNodeView[] = [];
+
+    for (const blueprint of automationBlueprints) {
+      const automation = automationMap.get(blueprint.code);
+      if (!automation) {
+        continue;
+      }
+
+      const layout = layoutMap.get(automation.code) ?? null;
+      nodes.push(toNodeView(blueprint, automation, layout));
+    }
+
+    return nodes.sort((a, b) => a.sequence - b.sequence);
+  },
+
+  async getNode(code: string, userId?: string | null): Promise<AutomationNodeDetails> {
+    const normalizedCode = code.toUpperCase();
+    const blueprint = blueprintMap.get(normalizedCode);
+    if (!blueprint) {
+      throw new AutomationError(`Automation node ${normalizedCode} was not found.`, 404);
+    }
+
+    const automation = await prisma.automation.findUnique({
+      where: { code: normalizedCode },
+    });
+
+    if (!automation) {
+      throw new AutomationError(`Automation node ${normalizedCode} is not initialised.`, 404);
+    }
+
+    let layout: { x: number; y: number } | null = null;
+    if (userId) {
+      const record = await prisma.automationLayout.findUnique({
+        where: {
+          userId_automationCode: {
+            userId,
+            automationCode: normalizedCode,
+          },
+        },
+      });
+      if (record) {
+        layout = { x: record.positionX, y: record.positionY };
+      }
+    }
+
+    const executions = await prisma.execution.findMany({
+      where: { automationId: automation.id },
+      orderBy: { startedAt: 'desc' },
+      take: 25,
+    });
 
       return {
-        ...node,
-        webhookUrl,
-        connected: Boolean(webhookUrl),
-        position: savedPosition,
-        positionX: savedPosition?.x ?? null,
-        positionY: savedPosition?.y ?? null,
-        layout: savedPosition,
-      } satisfies AutomationNodeView;
-    });
+        ...toNodeView(blueprint, automation, layout),
+        metadata: buildMetadataRecord(automation.metadata, blueprint),
+        executions: executions.map(mapExecution),
+      } satisfies AutomationNodeDetails;
   },
 
   async saveNodePosition({
@@ -279,9 +850,7 @@ export const automationsService = {
     position: { x: number; y: number };
   }): Promise<void> {
     const normalizedCode = code.toUpperCase();
-    const node = automationNodes.find((candidate) => candidate.code === normalizedCode);
-
-    if (!node) {
+    if (!blueprintMap.has(normalizedCode)) {
       throw new AutomationError(`Automation node ${normalizedCode} was not found.`, 404);
     }
 
@@ -310,96 +879,110 @@ export const automationsService = {
     }
   },
 
-  async runNode({ code, payload }: { code: string; payload?: unknown }): Promise<AutomationRunResult> {
-    const normalizedCode = code.toUpperCase();
-    const definition = automationNodes.find((node) => node.code === normalizedCode);
+  async runNode({
+    code,
+    payload,
+    cascade = true,
+    source = 'manual',
+  }: {
+    code: string;
+    payload?: unknown;
+    cascade?: boolean;
+    source?: string;
+  }): Promise<AutomationRunResponse> {
+    await seedAutomations();
 
-    if (!definition) {
+    const normalizedCode = code.toUpperCase();
+    const blueprint = blueprintMap.get(normalizedCode);
+    if (!blueprint) {
       throw new AutomationError(`Automation node ${normalizedCode} was not found.`, 404);
     }
 
-    const webhookUrl = resolveWebhookUrl(definition.webhookPath);
-
-    if (!webhookUrl) {
-      throw new AutomationError(
-        'n8n base URL is not configured. Set N8N_BASE_URL so SmartOps can reach the workflow webhooks.',
-        503,
-      );
+    const automation = await prisma.automation.findUnique({ where: { code: normalizedCode } });
+    if (!automation) {
+      throw new AutomationError(`Automation node ${normalizedCode} is not initialised.`, 404);
     }
 
-    const body = serializePayload(payload);
-    const startedAt = new Date();
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
+    const createRetryScheduler = (targetCode: string) => (delayMs: number) => {
+      if (!Number.isFinite(delayMs) || delayMs <= 0) {
+        return;
+      }
+      const ms = Math.trunc(delayMs);
+      const minutes = Math.max(1, Math.round(ms / 60000));
+      console.warn(`Scheduling retry for automation ${targetCode} in ${minutes} minute(s).`);
+      setTimeout(() => {
+        automationsService
+          .runNode({ code: targetCode, cascade: false, source: 'retry' })
+          .catch((err) => console.error(`Retry for automation ${targetCode} failed`, err));
+      }, ms);
     };
 
-    const authHeader = resolveBasicAuthHeader();
-    if (authHeader) {
-      headers.Authorization = authHeader;
-    }
-
-    let response: Response | null = null;
-
-    try {
-      response = await fetch(webhookUrl, {
-        method: 'POST',
-        headers,
-        body,
-      });
-    } catch (error) {
-      const finishedAt = new Date();
-      return {
-        code: definition.code,
-        ok: false,
-        httpStatus: null,
-        statusText: 'FETCH_ERROR',
-        webhookUrl,
-        startedAt: startedAt.toISOString(),
-        finishedAt: finishedAt.toISOString(),
-        durationMs: finishedAt.getTime() - startedAt.getTime(),
-        requestPayload: payload ?? null,
-        responseBody: null,
-        responseHeaders: {},
-        error: error instanceof Error ? error.message : 'Unknown error contacting n8n webhook.',
-      };
-    }
-
-    const finishedAt = new Date();
-
-    const headersRecord: Record<string, string> = {};
-    response.headers.forEach((value, key) => {
-      headersRecord[key] = value;
+    const primary = await runAutomationStep({
+      blueprint,
+      automation,
+      payload,
+      source,
+      scheduleRetry: createRetryScheduler(normalizedCode),
     });
 
-    let responseBody: unknown = null;
-    const contentType = response.headers.get('content-type') ?? '';
+    const cascadeResults: Array<{ automation: AutomationNodeView; execution: AutomationExecutionView }> = [];
 
-    if (contentType.includes('application/json')) {
-      responseBody = await response.json().catch(() => null);
-    } else {
-      const text = await response.text().catch(() => null);
-      responseBody = text && text.length > 0 ? text : null;
+    if (cascade) {
+      const reachable = computeReachableCodes(normalizedCode);
+      reachable.delete(normalizedCode);
+
+      const visited = new Set<string>([normalizedCode]);
+      let progress = true;
+
+      while (progress && reachable.size > 0) {
+        progress = false;
+
+        for (const candidate of Array.from(reachable)) {
+          const candidateBlueprint = blueprintMap.get(candidate);
+          if (!candidateBlueprint) {
+            reachable.delete(candidate);
+            continue;
+          }
+
+          const dependenciesMet =
+            candidateBlueprint.dependencies.length === 0
+              ? false
+              : candidateBlueprint.dependencies.every((dependency) => visited.has(dependency));
+
+          if (!dependenciesMet) {
+            continue;
+          }
+
+          const candidateAutomation = await prisma.automation.findUnique({ where: { code: candidate } });
+          if (!candidateAutomation) {
+            reachable.delete(candidate);
+            continue;
+          }
+
+          const result = await runAutomationStep({
+            blueprint: candidateBlueprint,
+            automation: candidateAutomation,
+            source: `cascade:${candidateBlueprint.dependencies.join('+') || normalizedCode}`,
+            scheduleRetry: createRetryScheduler(candidate),
+          });
+
+          cascadeResults.push(result);
+          visited.add(candidate);
+          reachable.delete(candidate);
+          progress = true;
+        }
+      }
     }
 
-    const result: AutomationRunResult = {
-      code: definition.code,
-      ok: response.ok,
-      httpStatus: response.status,
-      statusText: response.statusText || null,
-      webhookUrl,
-      startedAt: startedAt.toISOString(),
-      finishedAt: finishedAt.toISOString(),
-      durationMs: finishedAt.getTime() - startedAt.getTime(),
-      requestPayload: payload ?? null,
-      responseBody,
-      responseHeaders: headersRecord,
-    };
+    return { automation: primary.automation, execution: primary.execution, cascade: cascadeResults } satisfies AutomationRunResponse;
+  },
 
-    if (!response.ok) {
-      result.error = `n8n responded with status ${response.status}`;
-    }
+  async getStatuses(): Promise<AutomationNodeView[]> {
+    return this.listNodes();
+  },
 
-    return result;
+  async runPipeline(startCode = 'ACP', source: string = 'scheduled'): Promise<AutomationRunResponse> {
+    return this.runNode({ code: startCode, cascade: true, source });
   },
 
   async generateInsights({ focus }: { focus?: string }) {
@@ -415,9 +998,9 @@ export const automationsService = {
           },
           {
             role: 'user',
-            content: `Workflow nodes: ${automationNodes
-              .map((node) => `${node.code} – ${node.title}: ${node.statusLabel}`)
-              .join('; ')}. Focus on ${focus ?? 'overall pipeline performance'} and surface the next best actions, risk watchouts, and opportunities for OpenAI augmentation.`,
+            content: `Workflow nodes: ${automationBlueprints
+              .map((node) => `${node.code} – ${node.name}: ${node.statusLabel}`)
+              .join('; ')}. Focus on ${focus ?? 'overall pipeline performance'} and surface next best actions, risk watch-outs, and opportunities for OpenAI augmentation.`,
           },
         ],
       });
