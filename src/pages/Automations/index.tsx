@@ -1098,13 +1098,6 @@ export default function AutomationsFlow() {
         className="space-y-3"
       >
         <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Automations</p>
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight text-white">Workflow Canvas</h1>
-          <p className="mt-2 max-w-2xl text-sm text-slate-400">
-            Visualize each SmartOps automation as an interconnected pipeline. Select a node to preview its OpenAI
-            parameters, run history, and scheduling logic without leaving the canvas.
-          </p>
-        </div>
       </motion.header>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,1fr)] 2xl:grid-cols-[minmax(0,1.85fr)_minmax(360px,1fr)]">
