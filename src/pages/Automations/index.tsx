@@ -19,12 +19,20 @@ import {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
-import { Loader2 } from 'lucide-react';
+import { CalendarClock, Clock, History, Loader2, Play, Settings2 } from 'lucide-react';
 import dagre from '@dagrejs/dagre';
 import { useAuth } from '../../context/AuthContext';
 import { apiFetch } from '../../lib/apiClient';
-import type { AutomationNode } from '../../types/automations';
+import type { AutomationNode, AutomationRunResult } from '../../types/automations';
 import type { AutomationNodeData } from '../../components/automations/AutomationNodeCard';
+import {
+  formatDuration,
+  formatTimestamp,
+  getDefaultSchedule,
+  normalizeRunHistory,
+  normalizeSchedule,
+  type AutomationScheduleSettings,
+} from '../../utils/automations';
 import '../../styles/reactflow.css';
 
 const LazyAutomationNode = lazy(() => import('../../components/automations/AutomationNodeCard'));
@@ -44,6 +52,21 @@ const statusMap: Record<AutomationNode['status'], AutomationNodeData['status']> 
   operational: 'operational',
   monitor: 'under-watch',
   upcoming: 'offline',
+};
+
+const inspectorStatusStyles: Record<AutomationNode['status'], { label: string; chip: string }> = {
+  operational: {
+    label: 'Operational',
+    chip: 'border border-emerald-500/40 bg-emerald-500/15 text-emerald-200',
+  },
+  monitor: {
+    label: 'Under watch',
+    chip: 'border border-amber-500/40 bg-amber-500/15 text-amber-200',
+  },
+  upcoming: {
+    label: 'Offline soon',
+    chip: 'border border-rose-500/40 bg-rose-500/15 text-rose-200',
+  },
 };
 
 const statusRefreshIntervalMs = 30_000;
@@ -210,14 +233,15 @@ export default function AutomationsFlow() {
       }
     | null
   >(null);
-
-  const n8nBaseUrl = useMemo(() => {
-    const raw = import.meta.env.VITE_N8N_BASE_URL ?? '';
-    if (typeof raw !== 'string' || raw.trim().length === 0) {
-      return '';
-    }
-    return raw.trim().replace(/\/$/, '');
-  }, []);
+  const [selectedAutomationId, setSelectedAutomationId] = useState<string | null>(null);
+  const [selectedRuns, setSelectedRuns] = useState<AutomationRunResult[]>([]);
+  const [selectedLastRun, setSelectedLastRun] = useState<AutomationRunResult | null>(null);
+  const [selectedRunsLoading, setSelectedRunsLoading] = useState(false);
+  const [selectedRunsError, setSelectedRunsError] = useState<string | null>(null);
+  const [selectedSchedule, setSelectedSchedule] = useState<AutomationScheduleSettings | null>(null);
+  const [selectedScheduleLoading, setSelectedScheduleLoading] = useState(false);
+  const [selectedScheduleError, setSelectedScheduleError] = useState<string | null>(null);
+  const [inspectorRefreshKey, setInspectorRefreshKey] = useState(0);
 
   const nodeTypes = useMemo(() => {
     const renderer: AutomationNodeTypeRenderer = (props) => (
@@ -228,6 +252,10 @@ export default function AutomationsFlow() {
 
     return { automation: renderer };
   }, []);
+
+  const selectedAutomation = selectedAutomationId
+    ? automationMapRef.current[selectedAutomationId] ?? null
+    : null;
 
   const clearExecutionReset = useCallback((id: string) => {
     const currentTimers = executionResetTimersRef.current;
@@ -259,27 +287,16 @@ export default function AutomationsFlow() {
         return;
       }
 
-      clearExecutionReset(id);
-
-      const webhook = (() => {
-        if (meta.webhookUrl && meta.webhookUrl.trim().length > 0) {
-          return meta.webhookUrl.trim();
-        }
-        if (!n8nBaseUrl || !meta.webhookPath) {
-          return null;
-        }
-        const sanitizedPath = meta.webhookPath.replace(/^\/+/, '');
-        return `${n8nBaseUrl}/${sanitizedPath}`;
-      })();
-
-      if (!webhook) {
+      if (!user) {
         setExecutionStates((prev) => ({
           ...prev,
-          [id]: { status: 'error', message: 'No webhook configured for this automation.' },
+          [id]: { status: 'error', message: 'Sign in to trigger automations.' },
         }));
         scheduleExecutionReset(id);
         return;
       }
+
+      clearExecutionReset(id);
 
       setExecutionStates((prev) => ({
         ...prev,
@@ -287,15 +304,75 @@ export default function AutomationsFlow() {
       }));
 
       try {
-        const response = await fetch(webhook, { method: 'POST' });
-        if (!response.ok) {
-          throw new Error(`Execution failed (${response.status})`);
+        const token = await user.getIdToken();
+        const response = await apiFetch(`/automations/run/${id}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        const payload = (await response
+          .clone()
+          .json()
+          .catch(() => null)) as AutomationRunResult | null;
+
+        let result: AutomationRunResult;
+
+        if (payload) {
+          result = payload;
+        } else {
+          const now = new Date().toISOString();
+          const headersRecord = Object.fromEntries(response.headers.entries()) as Record<string, string>;
+          const statusText = response.statusText || null;
+
+          result = {
+            code: id,
+            ok: response.ok,
+            httpStatus: Number.isFinite(response.status) ? response.status : null,
+            statusText,
+            webhookUrl: meta.webhookUrl ?? null,
+            startedAt: now,
+            finishedAt: now,
+            durationMs: 0,
+            requestPayload: null,
+            responseBody: null,
+            responseHeaders: headersRecord,
+            ...(response.ok
+              ? {}
+              : {
+                  error:
+                    statusText ?? 'Unexpected response from automation run endpoint.',
+                }),
+          } satisfies AutomationRunResult;
         }
+
+        const success = response.ok && result.ok;
 
         setExecutionStates((prev) => ({
           ...prev,
-          [id]: { status: 'success', message: 'Workflow triggered successfully.' },
+          [id]: {
+            status: success ? 'success' : 'error',
+            message: success
+              ? 'Workflow triggered successfully.'
+              : result.error ?? 'The automation reported an issue.',
+          },
         }));
+
+        if (selectedAutomationId === id) {
+          setSelectedLastRun(result);
+          setSelectedRuns((prev) => {
+            const filtered = prev.filter(
+              (entry) => !(entry.code === result.code && entry.finishedAt === result.finishedAt),
+            );
+            const next = [result, ...filtered];
+            return next
+              .sort((a, b) => new Date(b.finishedAt).getTime() - new Date(a.finishedAt).getTime())
+              .slice(0, 5);
+          });
+          setSelectedRunsError(null);
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unable to execute workflow.';
         console.error('Failed to execute automation workflow', err);
@@ -305,9 +382,21 @@ export default function AutomationsFlow() {
         }));
       } finally {
         scheduleExecutionReset(id);
+        if (selectedAutomationId === id) {
+          setInspectorRefreshKey((prev) => prev + 1);
+        }
       }
     },
-    [clearExecutionReset, n8nBaseUrl, scheduleExecutionReset],
+    [
+      clearExecutionReset,
+      scheduleExecutionReset,
+      selectedAutomationId,
+      setInspectorRefreshKey,
+      setSelectedLastRun,
+      setSelectedRuns,
+      setSelectedRunsError,
+      user,
+    ],
   );
 
   const persistNodePosition = useCallback(
@@ -394,6 +483,19 @@ export default function AutomationsFlow() {
     [setEdges],
   );
 
+  const handleSelectAutomation = useCallback(
+    (id: string) => {
+      setSelectedAutomationId((current) => {
+        if (current === id) {
+          setInspectorRefreshKey((prev) => prev + 1);
+          return current;
+        }
+        return id;
+      });
+    },
+    [setInspectorRefreshKey],
+  );
+
   const handleOpenDetails = useCallback(
     (id: string) => {
       navigate(`/automations/${id}`);
@@ -420,15 +522,16 @@ export default function AutomationsFlow() {
             status: statusMap[automation.status] ?? 'operational',
             statusLabel: automation.statusLabel,
             connected: automation.connected,
-            onOpen: handleOpenDetails,
+            onOpen: handleSelectAutomation,
+            onNavigate: handleOpenDetails,
             onExecute: handleExecuteAutomation,
-            canExecute: Boolean(automation.webhookUrl || (n8nBaseUrl && automation.webhookPath)),
+            canExecute: Boolean(automation.webhookUrl || automation.webhookPath),
             executionStatus: 'idle',
             executionMessage: null,
           },
         } satisfies AutomationFlowNode;
       }),
-    [handleExecuteAutomation, handleOpenDetails, n8nBaseUrl],
+    [handleExecuteAutomation, handleOpenDetails, handleSelectAutomation],
   );
 
   const refreshNodes = useCallback(
@@ -467,8 +570,14 @@ export default function AutomationsFlow() {
       setInitialFitDone(false);
       setLayoutDirty(false);
       setSaveFeedback(null);
+
+      if (items.length === 0) {
+        setSelectedAutomationId(null);
+      } else if (!selectedAutomationId || !automationMapRef.current[selectedAutomationId]) {
+        setSelectedAutomationId(items[0].code);
+      }
     },
-    [buildNodes, setNodes, updateEdgesFromNodes],
+    [buildNodes, selectedAutomationId, setNodes, updateEdgesFromNodes],
   );
 
   const handleNodesChange = useCallback(
@@ -622,7 +731,7 @@ export default function AutomationsFlow() {
     });
     setLayoutDirty(true);
     setSaveFeedback(null);
-  }, [buildNodes, updateEdgesFromNodes]);
+  }, [buildNodes, setNodes, updateEdgesFromNodes]);
 
   const handleSaveLayout = useCallback(async () => {
     if (savingLayout) {
@@ -700,7 +809,7 @@ export default function AutomationsFlow() {
           typeof update.connected === 'boolean' ? update.connected : meta.connected,
       };
     });
-  }, []);
+  }, [setNodes]);
 
   const fetchAutomationStatuses = useCallback(async () => {
     if (!user) {
@@ -814,6 +923,89 @@ export default function AutomationsFlow() {
   }, [fetchAutomationStatuses, user]);
 
   useEffect(() => {
+    if (!selectedAutomationId || !user) {
+      setSelectedRuns([]);
+      setSelectedLastRun(null);
+      setSelectedRunsLoading(false);
+      setSelectedRunsError(null);
+      setSelectedSchedule({ ...getDefaultSchedule() });
+      setSelectedScheduleLoading(false);
+      setSelectedScheduleError(null);
+      return;
+    }
+
+    let active = true;
+    setSelectedRunsLoading(true);
+    setSelectedScheduleLoading(true);
+    setSelectedRunsError(null);
+    setSelectedScheduleError(null);
+
+    const loadInspectorDetails = async () => {
+      try {
+        const token = await user.getIdToken();
+        const [runsResponse, scheduleResponse] = await Promise.all([
+          apiFetch(`/automations/runs/${selectedAutomationId}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          apiFetch(`/automations/${selectedAutomationId}/schedule`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+        ]);
+
+        if (!active) {
+          return;
+        }
+
+        if (runsResponse.ok) {
+          const payload = await runsResponse.json().catch(() => null);
+          if (active) {
+            const normalized = normalizeRunHistory(payload);
+            setSelectedLastRun(normalized.lastRun);
+            setSelectedRuns(normalized.runs.slice(0, 5));
+          }
+        } else {
+          setSelectedRuns([]);
+          setSelectedLastRun(null);
+          setSelectedRunsError('Unable to load recent runs.');
+        }
+
+        if (scheduleResponse.ok) {
+          const payload = await scheduleResponse.json().catch(() => null);
+          if (active) {
+            setSelectedSchedule(normalizeSchedule(payload));
+          }
+        } else if (scheduleResponse.status === 404) {
+          setSelectedSchedule({ ...getDefaultSchedule() });
+        } else {
+          setSelectedSchedule({ ...getDefaultSchedule() });
+          setSelectedScheduleError('Unable to load schedule settings.');
+        }
+      } catch (err) {
+        if (!active) {
+          return;
+        }
+        console.warn('Unable to load automation inspector details', err);
+        setSelectedRuns([]);
+        setSelectedLastRun(null);
+        setSelectedRunsError('Unable to load recent runs.');
+        setSelectedSchedule({ ...getDefaultSchedule() });
+        setSelectedScheduleError('Unable to load schedule settings.');
+      } finally {
+        if (active) {
+          setSelectedRunsLoading(false);
+          setSelectedScheduleLoading(false);
+        }
+      }
+    };
+
+    void loadInspectorDetails();
+
+    return () => {
+      active = false;
+    };
+  }, [inspectorRefreshKey, selectedAutomationId, user]);
+
+  useEffect(() => {
     setNodes((current) =>
       current.map((node) => {
         const execution = executionStates[node.id] ?? { status: 'idle' as const };
@@ -873,6 +1065,30 @@ export default function AutomationsFlow() {
     };
   }, [saveFeedback]);
 
+  const inspectorExecutionState = selectedAutomation
+    ? executionStates[selectedAutomation.code] ?? { status: 'idle' as const }
+    : { status: 'idle' as const };
+
+  const inspectorStatus = useMemo(() => {
+    if (!selectedAutomation) {
+      return null;
+    }
+    const style = inspectorStatusStyles[selectedAutomation.status] ?? inspectorStatusStyles.operational;
+    return {
+      label: selectedAutomation.statusLabel || style.label,
+      chip: style.chip,
+    };
+  }, [selectedAutomation]);
+
+  const scheduleSummary = selectedSchedule ?? getDefaultSchedule();
+  const scheduleDescription = scheduleSummary.enabled
+    ? scheduleSummary.frequency === 'hourly'
+      ? 'Runs every hour'
+      : scheduleSummary.frequency === 'daily'
+        ? `Runs daily at ${scheduleSummary.timeOfDay}`
+        : `Runs every ${scheduleSummary.dayOfWeek.charAt(0).toUpperCase() + scheduleSummary.dayOfWeek.slice(1)} at ${scheduleSummary.timeOfDay}`
+    : 'Automatic scheduling disabled.';
+
   return (
     <div className="space-y-10 text-slate-100">
       <motion.header
@@ -885,135 +1101,332 @@ export default function AutomationsFlow() {
         <div>
           <h1 className="text-3xl font-semibold tracking-tight text-white">Workflow Canvas</h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-400">
-            Visualize each SmartOps automation as an interconnected pipeline. Drag nodes to explore different
-            sequences and open any node to manage its details.
+            Visualize each SmartOps automation as an interconnected pipeline. Select a node to preview its OpenAI
+            parameters, run history, and scheduling logic without leaving the canvas.
           </p>
         </div>
       </motion.header>
 
-      <div className="relative h-[640px] w-full overflow-hidden rounded-3xl border border-slate-800/80 bg-slate-950/50 sm:h-[560px]">
-        {loading ? (
-          <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/80 backdrop-blur">
-            <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
-          </div>
-        ) : null}
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,1fr)] 2xl:grid-cols-[minmax(0,1.85fr)_minmax(360px,1fr)]">
+        <div className="relative h-[720px] w-full overflow-hidden rounded-3xl border border-slate-800/80 bg-slate-950/50">
+          {loading ? (
+            <div className="absolute inset-0 z-20 flex items-center justify-center bg-slate-950/80 backdrop-blur">
+              <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+            </div>
+          ) : null}
 
-        {error ? (
-          <div className="absolute inset-x-0 top-0 z-30 m-6 rounded-2xl border border-rose-800/70 bg-rose-950/60 p-4 text-sm text-rose-200">
-            {error}
-          </div>
-        ) : null}
+          {error ? (
+            <div className="absolute inset-x-0 top-0 z-30 m-6 rounded-2xl border border-rose-800/70 bg-rose-950/60 p-4 text-sm text-rose-200">
+              {error}
+            </div>
+          ) : null}
 
-        <div className="absolute right-5 top-5 z-30 flex flex-col items-end gap-3">
-          <div className="flex flex-col gap-2 md:flex-row">
-            <button
-              type="button"
-              onClick={handleResetToDefaultOrder}
-              disabled={nodes.length === 0}
-              className={`rounded-full border border-slate-700/70 bg-slate-900/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-200 shadow-lg shadow-black/40 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/70 md:min-w-[168px] ${
-                nodes.length === 0
-                  ? 'cursor-not-allowed opacity-60'
-                  : 'hover:border-rose-500/50 hover:text-rose-200'
-              }`}
-            >
-              Reset layout
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (nodes.length === 0) return;
-                handleAutoLayout();
-              }}
-              disabled={nodes.length === 0}
-              className={`rounded-full border border-slate-700/70 bg-slate-900/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-200 shadow-lg shadow-black/40 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/70 md:min-w-[168px] ${
-                nodes.length === 0
-                  ? 'cursor-not-allowed opacity-60'
-                  : 'hover:border-rose-500/50 hover:text-rose-200'
-              }`}
-            >
-              Auto arrange
-            </button>
-            <button
-              type="button"
-              onClick={handleSaveLayout}
-              disabled={nodes.length === 0 || savingLayout || !layoutDirty}
-              className={`rounded-full border border-rose-500/60 bg-rose-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-rose-100 shadow-lg shadow-black/40 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/70 md:min-w-[168px] ${
-                nodes.length === 0 || savingLayout || !layoutDirty
-                  ? 'cursor-not-allowed opacity-60'
-                  : 'hover:border-rose-400/80 hover:text-rose-50'
-              }`}
-            >
-              {savingLayout ? 'Saving…' : 'Save layout'}
-            </button>
+          <div className="absolute right-5 top-5 z-30 flex flex-col items-end gap-3">
+            <div className="flex flex-col gap-2 md:flex-row">
+              <button
+                type="button"
+                onClick={handleResetToDefaultOrder}
+                disabled={nodes.length === 0}
+                className={`rounded-full border border-slate-700/70 bg-slate-900/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-200 shadow-lg shadow-black/40 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/70 md:min-w-[168px] ${
+                  nodes.length === 0
+                    ? 'cursor-not-allowed opacity-60'
+                    : 'hover:border-rose-500/50 hover:text-rose-200'
+                }`}
+              >
+                Reset layout
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (nodes.length === 0) return;
+                  handleAutoLayout();
+                }}
+                disabled={nodes.length === 0}
+                className={`rounded-full border border-slate-700/70 bg-slate-900/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-200 shadow-lg shadow-black/40 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/70 md:min-w-[168px] ${
+                  nodes.length === 0
+                    ? 'cursor-not-allowed opacity-60'
+                    : 'hover:border-rose-500/50 hover:text-rose-200'
+                }`}
+              >
+                Auto arrange
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveLayout}
+                disabled={nodes.length === 0 || savingLayout || !layoutDirty}
+                className={`rounded-full border border-rose-500/60 bg-rose-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-rose-100 shadow-lg shadow-black/40 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/70 md:min-w-[168px] ${
+                  nodes.length === 0 || savingLayout || !layoutDirty
+                    ? 'cursor-not-allowed opacity-60'
+                    : 'hover:border-rose-400/80 hover:text-rose-50'
+                }`}
+              >
+                {savingLayout ? 'Saving…' : 'Save layout'}
+              </button>
+            </div>
+            {saveFeedback ? (
+              <div
+                className={`rounded-full px-4 py-1 text-xs font-medium uppercase tracking-[0.2em] ${
+                  saveFeedback.type === 'success'
+                    ? 'bg-emerald-500/20 text-emerald-200'
+                    : 'bg-rose-500/10 text-rose-200'
+                }`}
+              >
+                {saveFeedback.message}
+              </div>
+            ) : null}
           </div>
-          {saveFeedback ? (
-            <div
-              className={`rounded-full px-4 py-1 text-xs font-medium uppercase tracking-[0.2em] ${
-                saveFeedback.type === 'success'
-                  ? 'bg-emerald-500/20 text-emerald-200'
-                  : 'bg-rose-500/10 text-rose-200'
-              }`}
+
+          <ReactFlowProvider>
+            <ReactFlow
+              className="reactflow-dark"
+              nodes={nodes}
+              edges={edges}
+              onNodesChange={handleNodesChange}
+              onEdgesChange={onEdgesChange}
+              onNodeDragStop={handleNodeDragStop}
+              onInit={handleInit}
+              fitView
+              panOnScroll={false}
+              panOnDrag
+              zoomOnScroll
+              minZoom={0.3}
+              maxZoom={1.6}
+              nodesDraggable
+              nodeTypes={nodeTypes}
+              proOptions={{ hideAttribution: true }}
+              style={{ width: '100%', height: '100%' }}
             >
-              {saveFeedback.message}
+              <Background color="rgba(148, 163, 184, 0.2)" gap={28} />
+              {controlsVisible ? (
+                <>
+                  <MiniMap
+                    className="!bg-slate-900/90 !text-slate-200"
+                    pannable
+                    zoomable
+                    maskColor="rgba(15, 23, 42, 0.92)"
+                    nodeColor={(node) => {
+                      const status = (node.data as AutomationNodeData | undefined)?.status;
+                      if (status === 'offline') return '#f87171';
+                      if (status === 'under-watch') return '#facc15';
+                      return '#34d399';
+                    }}
+                    nodeStrokeColor="rgba(148, 163, 184, 0.4)"
+                  />
+                  <Controls className="!border-none !bg-transparent" />
+                </>
+              ) : null}
+            </ReactFlow>
+          </ReactFlowProvider>
+
+          <button
+            type="button"
+            onClick={() => setControlsVisible((prev) => !prev)}
+            className="absolute bottom-5 left-5 z-30 rounded-full border border-slate-700/70 bg-slate-900/80 px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-200 shadow-lg shadow-black/40 transition hover:border-rose-500/40 hover:text-rose-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/70"
+          >
+            {controlsVisible ? 'Hide controls' : 'Show controls'}
+          </button>
+
+          {!loading && nodes.length === 0 && !error ? (
+            <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-400">
+              No automations found.
             </div>
           ) : null}
         </div>
 
-        <ReactFlowProvider>
-          <ReactFlow
-            className="reactflow-dark"
-            nodes={nodes}
-            edges={edges}
-            onNodesChange={handleNodesChange}
-            onEdgesChange={onEdgesChange}
-            onNodeDragStop={handleNodeDragStop}
-            onInit={handleInit}
-            fitView
-            panOnScroll={false}
-            panOnDrag
-            zoomOnScroll
-            minZoom={0.3}
-            maxZoom={1.6}
-            nodesDraggable
-            nodeTypes={nodeTypes}
-            proOptions={{ hideAttribution: true }}
-            style={{ width: '100%', height: '100%' }}
-          >
-            <Background color="rgba(148, 163, 184, 0.2)" gap={28} />
-            {controlsVisible ? (
-              <>
-                <MiniMap
-                  className="!bg-slate-900/90 !text-slate-200"
-                  pannable
-                  zoomable
-                  maskColor="rgba(15, 23, 42, 0.92)"
-                  nodeColor={(node) => {
-                    const status = (node.data as AutomationNodeData | undefined)?.status;
-                    if (status === 'offline') return '#f87171';
-                    if (status === 'under-watch') return '#facc15';
-                    return '#34d399';
-                  }}
-                  nodeStrokeColor="rgba(148, 163, 184, 0.4)"
-                />
-                <Controls className="!border-none !bg-transparent" />
-              </>
-            ) : null}
-          </ReactFlow>
-        </ReactFlowProvider>
+        <aside className="flex min-h-[720px] flex-col gap-5 rounded-3xl border border-slate-800/70 bg-slate-950/60 p-6 shadow-2xl shadow-black/40">
+          {selectedAutomation ? (
+            <div className="flex h-full flex-col gap-6">
+              <div className="space-y-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-2">
+                    <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Selected node</p>
+                    <h2 className="text-2xl font-semibold text-white">{selectedAutomation.title}</h2>
+                    <p className="text-sm text-slate-300">{selectedAutomation.shortDescription}</p>
+                  </div>
+                  {inspectorStatus ? (
+                    <span
+                      className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] ${inspectorStatus.chip}`}
+                    >
+                      <span className="h-2 w-2 rounded-full bg-current" />
+                      {inspectorStatus.label}
+                    </span>
+                  ) : null}
+                </div>
 
-        <button
-          type="button"
-          onClick={() => setControlsVisible((prev) => !prev)}
-          className="absolute bottom-5 left-5 z-30 rounded-full border border-slate-700/70 bg-slate-900/80 px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-200 shadow-lg shadow-black/40 transition hover:border-rose-500/40 hover:text-rose-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/70"
-        >
-          {controlsVisible ? 'Hide controls' : 'Show controls'}
-        </button>
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => void handleExecuteAutomation(selectedAutomation.code)}
+                    disabled={inspectorExecutionState.status === 'running'}
+                    className="inline-flex items-center gap-2 rounded-full bg-rose-500/25 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-rose-100 shadow-lg shadow-rose-500/25 transition hover:bg-rose-500/35 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/60 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {inspectorExecutionState.status === 'running' ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Play className="h-4 w-4" />
+                    )}
+                    {inspectorExecutionState.status === 'running' ? 'Executing…' : 'Execute'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenDetails(selectedAutomation.code)}
+                    className="inline-flex items-center gap-2 rounded-full border border-slate-700/70 bg-slate-900/70 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-slate-300 transition hover:border-rose-400/60 hover:text-rose-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/60"
+                  >
+                    Open full view
+                  </button>
+                  <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] ${
+                    selectedAutomation.connected ? 'border border-emerald-500/40 bg-emerald-500/10 text-emerald-200' : 'border border-amber-500/40 bg-amber-500/10 text-amber-200'
+                  }`}
+                  >
+                    <span className="h-2 w-2 rounded-full bg-current" />
+                    {selectedAutomation.connected ? 'n8n connected' : 'Connection pending'}
+                  </span>
+                </div>
 
-        {!loading && nodes.length === 0 && !error ? (
-          <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-400">
-            No automations found.
-          </div>
-        ) : null}
+                {inspectorExecutionState.message ? (
+                  <p className="text-xs text-rose-200">{inspectorExecutionState.message}</p>
+                ) : null}
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-xs text-slate-400">
+                    <p className="text-[11px] uppercase tracking-[0.3em] text-slate-500">Webhook</p>
+                    <p className="mt-2 break-all font-mono text-[11px] text-slate-200">
+                      {selectedAutomation.webhookUrl ?? 'Not configured'}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-xs text-slate-400">
+                    <p className="text-[11px] uppercase tracking-[0.3em] text-slate-500">Deliverables</p>
+                    <p className="mt-2 text-sm text-slate-200">
+                      {selectedAutomation.deliverables.length > 0 ? selectedAutomation.deliverables.length : 'None listed'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-4">
+                <section className="flex flex-col gap-3 rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-slate-500">
+                      <Clock className="h-4 w-4" />Input
+                    </span>
+                    {selectedRunsLoading && <Loader2 className="h-4 w-4 animate-spin text-slate-500" />}
+                  </div>
+                  {selectedLastRun && selectedLastRun.requestPayload ? (
+                    <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded-xl border border-slate-800 bg-slate-950/70 p-3 font-mono text-[11px] text-slate-200">
+                      {typeof selectedLastRun.requestPayload === 'string'
+                        ? selectedLastRun.requestPayload
+                        : JSON.stringify(selectedLastRun.requestPayload, null, 2)}
+                    </pre>
+                  ) : (
+                    <p className="text-sm text-slate-400">No payload recorded for the latest execution.</p>
+                  )}
+                  <p className="text-xs text-slate-500">
+                    Started {selectedLastRun ? formatTimestamp(selectedLastRun.startedAt) : '—'}
+                  </p>
+                </section>
+
+                <section className="flex flex-col gap-3 rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-slate-500">
+                      <Settings2 className="h-4 w-4" />Output
+                    </span>
+                    {inspectorExecutionState.status === 'running' && (
+                      <Loader2 className="h-4 w-4 animate-spin text-slate-500" />
+                    )}
+                  </div>
+                  {selectedLastRun ? (
+                    selectedLastRun.error ? (
+                      <p className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                        {selectedLastRun.error}
+                      </p>
+                    ) : selectedLastRun.responseBody ? (
+                      <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded-xl border border-slate-800 bg-slate-950/70 p-3 font-mono text-[11px] text-slate-200">
+                        {typeof selectedLastRun.responseBody === 'string'
+                          ? selectedLastRun.responseBody
+                          : JSON.stringify(selectedLastRun.responseBody, null, 2)}
+                      </pre>
+                    ) : (
+                      <p className="text-sm text-slate-400">The workflow did not return a response body.</p>
+                    )
+                  ) : (
+                    <p className="text-sm text-slate-400">Execute the workflow to view output details.</p>
+                  )}
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <p className="text-xs text-slate-500">
+                      HTTP {selectedLastRun ? selectedLastRun.httpStatus ?? '—' : '—'}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      Duration {selectedLastRun ? formatDuration(selectedLastRun.durationMs) : '—'}
+                    </p>
+                  </div>
+                </section>
+              </div>
+
+              <section className="space-y-4 rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-slate-500">
+                    <CalendarClock className="h-4 w-4" />Schedule
+                  </span>
+                  {selectedScheduleLoading && <Loader2 className="h-4 w-4 animate-spin text-slate-500" />}
+                </div>
+                <p className="text-sm text-slate-300">{scheduleDescription}</p>
+                <p className="text-xs text-slate-500">Timezone · {scheduleSummary.timezone}</p>
+                {selectedScheduleError ? (
+                  <p className="text-xs text-amber-200">{selectedScheduleError}</p>
+                ) : null}
+              </section>
+
+              <section className="flex-1 space-y-4 rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-slate-500">
+                    <History className="h-4 w-4" />Recent runs
+                  </span>
+                  {selectedRunsLoading && <Loader2 className="h-4 w-4 animate-spin text-slate-500" />}
+                </div>
+                {selectedRunsError ? (
+                  <p className="text-xs text-amber-200">{selectedRunsError}</p>
+                ) : selectedRuns.length === 0 ? (
+                  <p className="text-sm text-slate-400">No executions recorded for this automation yet.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {selectedRuns.map((run) => (
+                      <div
+                        key={`${run.code}-${run.finishedAt}`}
+                        className="rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-xs text-slate-300"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="font-medium text-slate-100">{formatTimestamp(run.finishedAt)}</p>
+                          <span
+                            className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] ${
+                              run.ok ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-200'
+                            }`}
+                          >
+                            <span className="h-2 w-2 rounded-full bg-current" />
+                            {run.ok ? 'Success' : 'Needs attention'}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-[11px] text-slate-500">
+                          HTTP {run.httpStatus ?? '—'} · Duration {formatDuration(run.durationMs)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => handleOpenDetails(selectedAutomation.code)}
+                  className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.3em] text-rose-200 transition hover:text-rose-100"
+                >
+                  View full history
+                </button>
+              </section>
+            </div>
+          ) : (
+            <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-slate-700/70 bg-slate-900/50 p-6 text-center text-sm text-slate-400">
+              Select a node on the canvas to inspect its OpenAI workflow configuration.
+            </div>
+          )}
+        </aside>
       </div>
     </div>
   );
