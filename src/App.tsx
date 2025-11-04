@@ -53,7 +53,14 @@ function App() {
                         </RoleGuard>
                       }
                     />
-                    <Route path="/permissions" element={<Permissions />} />
+                    <Route
+                      path="/permissions"
+                      element={
+                        <RoleGuard allowedRoles={['Admin', 'CEO']}>
+                          <Permissions />
+                        </RoleGuard>
+                      }
+                    />
                     <Route path="/" element={<Navigate to="/dashboard" replace />} />
                   </Routes>
                 </Layout>

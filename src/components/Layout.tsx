@@ -44,9 +44,11 @@ export default function Layout({ children }: LayoutProps) {
     ? [{ path: '/user-management', label: 'User Management', icon: UserCog }]
     : [];
 
-  const infoNavItems = [{ path: '/permissions', label: 'Permissions', icon: Shield }];
+  const privilegedNavItems = isManagerRole(profile?.role)
+    ? [{ path: '/permissions', label: 'Permissions', icon: Shield }]
+    : [];
 
-  const navItems = [...baseNavItems, ...managementNavItems, ...infoNavItems];
+  const navItems = [...baseNavItems, ...managementNavItems, ...privilegedNavItems];
 
   const [currentDateTime, setCurrentDateTime] = useState(() => new Date());
 
