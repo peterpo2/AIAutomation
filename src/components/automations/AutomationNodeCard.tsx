@@ -11,6 +11,7 @@ export interface AutomationNodeData {
   connected: boolean;
   onOpen: (id: string) => void;
   onExecute?: (id: string) => void;
+  onNavigate?: (id: string) => void;
   canExecute?: boolean;
   executionStatus?: 'idle' | 'running' | 'success' | 'error';
   executionMessage?: string | null;
@@ -76,6 +77,10 @@ function AutomationNodeCardComponent({ id, data, selected }: NodeProps<Automatio
       <button
         type="button"
         onClick={() => data.onOpen(id)}
+        onDoubleClick={(event) => {
+          event.stopPropagation();
+          data.onNavigate?.(id);
+        }}
         className={`group relative w-[280px] rounded-3xl border border-slate-800/80 bg-slate-900/70 p-6 text-left shadow-xl shadow-black/40 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/70 ${
           selected ? statusStyle.ring : ''
         }`}
@@ -112,10 +117,17 @@ function AutomationNodeCardComponent({ id, data, selected }: NodeProps<Automatio
               <span className={`h-2.5 w-2.5 rounded-full shadow-lg ${connectionColor}`} />
               <span>{data.connected ? 'n8n connected' : 'Connection pending'}</span>
             </span>
-            <span className="inline-flex items-center gap-1 font-semibold text-rose-300 group-hover:text-rose-200">
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 font-semibold text-rose-300 transition hover:text-rose-200"
+              onClick={(event) => {
+                event.stopPropagation();
+                data.onNavigate?.(id);
+              }}
+            >
               View details
               <Link2 className="h-3.5 w-3.5" />
-            </span>
+            </button>
           </div>
 
           <div className="mt-4 flex flex-col gap-2">

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Clock, History, Loader2, Play, Settings2 } from 'lucide-react';
+import { ArrowLeft, History, Loader2, Play } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { apiFetch } from '../../lib/apiClient';
 import type {
@@ -9,161 +9,20 @@ import type {
   AutomationRunResult,
   AutomationRunState,
 } from '../../types/automations';
+import {
+  formatDuration,
+  formatTimestamp,
+  getDefaultSchedule,
+  normalizeRunHistory,
+  normalizeSchedule,
+  sanitizeTime,
+  type AutomationScheduleSettings,
+  type ScheduleFrequency,
+} from '../../utils/automations';
 
-const formatTimestamp = (value?: string | null) => {
-  if (!value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return '—';
-  }
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(date);
-};
-
-const formatDuration = (ms?: number | null) => {
-  if (!Number.isFinite(ms ?? null) || ms == null) {
-    return '—';
-  }
-
-  if (ms < 1000) {
-    return `${Math.round(ms)}ms`;
-  }
-
-  if (ms < 60_000) {
-    return `${(ms / 1000).toFixed(1)}s`;
-  }
-
-  return `${(ms / 60_000).toFixed(1)}m`;
-};
-
-type ScheduleFrequency = 'hourly' | 'daily' | 'weekly';
-
-interface AutomationScheduleSettings {
-  enabled: boolean;
-  frequency: ScheduleFrequency;
-  timeOfDay: string;
-  dayOfWeek: string;
-  timezone: string;
-}
-
-const sanitizeTime = (value: string): string => {
-  const match = value.match(/^(\d{1,2})(?::(\d{2}))?$/);
-  if (!match) {
-    return '09:00';
-  }
-
-  const hours = Math.min(23, Math.max(0, Number.parseInt(match[1] ?? '0', 10)));
-  const minutes = Math.min(59, Math.max(0, Number.parseInt(match[2] ?? '0', 10)));
-
-  return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
-};
-
-const DEFAULT_SCHEDULE: AutomationScheduleSettings = {
-  enabled: false,
-  frequency: 'daily',
-  timeOfDay: '09:00',
-  dayOfWeek: 'monday',
-  timezone: Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC',
-};
+const DEFAULT_SCHEDULE = getDefaultSchedule();
 
 const HISTORY_LIMIT = 25;
-
-const coerceRunArray = (value: unknown): AutomationRunResult[] => {
-  if (!value) return [];
-  if (Array.isArray(value)) {
-    return value.filter((item): item is AutomationRunResult => {
-      if (!item || typeof item !== 'object') return false;
-      const candidate = item as Record<string, unknown>;
-      return typeof candidate.finishedAt === 'string';
-    });
-  }
-
-  if (typeof value === 'object') {
-    const container = value as Record<string, unknown>;
-    const keys = ['runs', 'history', 'items', 'data'];
-
-    for (const key of keys) {
-      if (Array.isArray(container[key])) {
-        return coerceRunArray(container[key]);
-      }
-    }
-
-    if ('lastRun' in container && container.lastRun && typeof container.lastRun === 'object') {
-      return coerceRunArray([container.lastRun]);
-    }
-
-    if ('code' in container && 'finishedAt' in container) {
-      return coerceRunArray([value]);
-    }
-  }
-
-  return [];
-};
-
-const normalizeRunHistory = (
-  payload: unknown,
-): { lastRun: AutomationRunResult | null; runs: AutomationRunResult[] } => {
-  const runs = coerceRunArray(payload);
-  const sorted = [...runs].sort(
-    (a, b) => new Date(b.finishedAt).getTime() - new Date(a.finishedAt).getTime(),
-  );
-
-  const lastRunCandidate =
-    payload && typeof payload === 'object' && 'lastRun' in (payload as Record<string, unknown>)
-      ? (payload as Record<string, unknown>).lastRun
-      : null;
-
-  const lastRun =
-    lastRunCandidate && typeof lastRunCandidate === 'object'
-      ? (lastRunCandidate as AutomationRunResult)
-      : sorted[0] ?? null;
-
-  return {
-    lastRun: lastRun ?? null,
-    runs: sorted,
-  };
-};
-
-const normalizeSchedule = (payload: unknown): AutomationScheduleSettings => {
-  if (!payload || typeof payload !== 'object') {
-    return { ...DEFAULT_SCHEDULE };
-  }
-
-  const source = payload as Record<string, unknown>;
-
-  const enabledCandidate = source.enabled ?? source.active ?? source.auto ?? source.automatic;
-  const enabled = typeof enabledCandidate === 'boolean' ? enabledCandidate : DEFAULT_SCHEDULE.enabled;
-
-  const rawFrequency = source.frequency ?? source.interval ?? source.cadence;
-  const frequency =
-    typeof rawFrequency === 'string'
-      ? (['hourly', 'daily', 'weekly'].includes(rawFrequency.toLowerCase())
-          ? (rawFrequency.toLowerCase() as ScheduleFrequency)
-          : DEFAULT_SCHEDULE.frequency)
-      : DEFAULT_SCHEDULE.frequency;
-
-  const rawTime = source.timeOfDay ?? source.time ?? source.at;
-  const timeOfDay = typeof rawTime === 'string' ? sanitizeTime(rawTime) : DEFAULT_SCHEDULE.timeOfDay;
-
-  const rawDay = source.dayOfWeek ?? source.weekday ?? source.day ?? DEFAULT_SCHEDULE.dayOfWeek;
-  const dayOfWeek = typeof rawDay === 'string' ? rawDay.toLowerCase() : DEFAULT_SCHEDULE.dayOfWeek;
-
-  const rawTimezone = source.timezone ?? source.tz ?? DEFAULT_SCHEDULE.timezone;
-  const timezone =
-    typeof rawTimezone === 'string' && rawTimezone.trim().length > 0
-      ? rawTimezone
-      : DEFAULT_SCHEDULE.timezone;
-
-  return {
-    enabled,
-    frequency,
-    timeOfDay,
-    dayOfWeek,
-    timezone,
-  };
-};
 
 export default function AutomationDetails() {
   const { id } = useParams<{ id: string }>();
@@ -183,6 +42,7 @@ export default function AutomationDetails() {
   const [scheduleSaving, setScheduleSaving] = useState(false);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [scheduleFeedback, setScheduleFeedback] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'parameters' | 'settings' | 'history'>('parameters');
 
   useEffect(() => {
     let active = true;
@@ -342,6 +202,10 @@ export default function AutomationDetails() {
       active = false;
     };
   }, [id, user]);
+
+  useEffect(() => {
+    setActiveTab('parameters');
+  }, [automation?.code]);
 
   const statusPill = useMemo(() => {
     if (!automation) return null;
@@ -559,322 +423,454 @@ export default function AutomationDetails() {
     'sunday',
   ];
 
+  const tabItems: { id: typeof activeTab; label: string }[] = [
+    { id: 'parameters', label: 'Parameters' },
+    { id: 'settings', label: 'Settings' },
+    { id: 'history', label: 'Run history' },
+  ];
+
   return (
     <div className="space-y-8 text-slate-100">
-      <button
-        type="button"
-        onClick={() => navigate('/automations')}
-        className="inline-flex items-center gap-2 text-sm font-medium text-slate-400 transition hover:text-slate-200"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        Back to automations
-      </button>
+      <div className="overflow-hidden rounded-3xl border border-slate-800/70 bg-slate-950/60 shadow-2xl shadow-black/40">
+        <div className="relative flex flex-col gap-6 bg-gradient-to-br from-slate-900/80 via-slate-950/90 to-slate-900/80 p-6 md:p-8">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <button
+              type="button"
+              onClick={() => navigate('/automations')}
+              className="inline-flex items-center gap-2 rounded-full border border-slate-800/70 bg-slate-950/60 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-slate-300 transition hover:border-rose-500/40 hover:text-rose-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/60"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              Back to canvas
+            </button>
+            {automation ? statusPill : null}
+          </div>
 
-      {loading ? (
-        <div className="flex items-center justify-center rounded-3xl border border-slate-800 bg-slate-950/60 py-20">
-          <Loader2 className="h-6 w-6 animate-spin text-slate-500" />
-        </div>
-      ) : error ? (
-        <div className="rounded-3xl border border-rose-900/80 bg-rose-950/40 p-6 text-sm text-rose-200">{error}</div>
-      ) : !automation ? (
-        <div className="rounded-3xl border border-slate-800 bg-slate-950/60 p-6 text-sm text-slate-400">
-          Automation details unavailable.
-        </div>
-      ) : (
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.35 }}
-          className="space-y-8"
-        >
-          <section className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <h1 className="text-3xl font-semibold tracking-tight text-white">{automation.title}</h1>
-                <p className="mt-2 max-w-2xl text-sm text-slate-400">{automation.description}</p>
-              </div>
-              {statusPill}
+          {loading ? (
+            <div className="flex min-h-[320px] items-center justify-center">
+              <Loader2 className="h-8 w-8 animate-spin text-slate-500" />
             </div>
-            <div className="rounded-3xl border border-slate-800 bg-slate-950/60 p-6 shadow-lg shadow-black/30">
-              <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">Why it matters</h2>
-              <p className="mt-3 text-sm leading-relaxed text-slate-300">{automation.function}</p>
+          ) : error ? (
+            <div className="rounded-2xl border border-rose-900/70 bg-rose-950/40 p-6 text-sm text-rose-200">{error}</div>
+          ) : !automation ? (
+            <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-6 text-sm text-slate-400">
+              Automation details unavailable.
             </div>
-          </section>
-
-          <section className="grid gap-6 lg:grid-cols-2 xl:grid-cols-3">
-            <div className="space-y-3 rounded-3xl border border-slate-800 bg-slate-950/60 p-6 shadow-lg shadow-black/30">
-              <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">
-                <Settings2 className="h-4 w-4" />
-                Webhook URL
-              </h2>
-              <p className="break-words text-sm text-slate-300">
-                {automation.webhookUrl ? (
-                  <span className="font-mono text-xs text-slate-200">{automation.webhookUrl}</span>
-                ) : (
-                  'Webhook has not been configured yet.'
-                )}
-              </p>
-            </div>
-            <div className="space-y-3 rounded-3xl border border-slate-800 bg-slate-950/60 p-6 shadow-lg shadow-black/30">
-              <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">
-                <Play className="h-4 w-4" />
-                Run automation
-              </h2>
-              <p className="text-sm text-slate-400">
-                Trigger this workflow on demand to verify integrations or push the latest data live.
-              </p>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                <button
-                  type="button"
-                  onClick={() => void handleRunAutomation()}
-                  disabled={runState.status === 'running'}
-                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-red-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-red-500/30 transition hover:bg-red-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400 disabled:cursor-not-allowed disabled:bg-red-500/50"
-                >
-                  {runState.status === 'running' ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Play className="h-4 w-4" />
-                  )}
-                  {runState.status === 'running' ? 'Running…' : 'Run automation'}
-                </button>
-                {runState.result && (
-                  <span
-                    className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${
-                      runState.status === 'success'
-                        ? 'bg-emerald-500/15 text-emerald-300'
-                        : runState.status === 'error'
-                          ? 'bg-amber-500/15 text-amber-200'
-                          : 'bg-slate-800 text-slate-300'
-                    }`}
-                  >
-                    <span className="h-2 w-2 rounded-full bg-current" />
-                    {runState.status === 'running'
-                      ? 'Running'
-                      : runState.status === 'success'
-                        ? 'Success'
-                        : runState.status === 'error'
-                          ? 'Needs attention'
-                          : 'Idle'}
-                  </span>
-                )}
-              </div>
-              {runFeedback && (
-                <p
-                  className={`text-xs ${
-                    runFeedback.type === 'success' ? 'text-emerald-300' : 'text-amber-200'
-                  }`}
-                >
-                  {runFeedback.message}
-                </p>
-              )}
-            </div>
-            <div className="space-y-3 rounded-3xl border border-slate-800 bg-slate-950/60 p-6 shadow-lg shadow-black/30">
-              <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">
-                <Clock className="h-4 w-4" />
-                Last run
-              </h2>
-              {lastRun ? (
-                <div className="space-y-2 text-sm text-slate-300">
-                  <p>
-                    <span className="text-slate-400">Completed:</span> {formatTimestamp(lastRun.finishedAt)}
-                  </p>
-                  <p>
-                    <span className="text-slate-400">Status:</span>{' '}
-                    <span
-                      className={`font-semibold ${lastRun.ok ? 'text-emerald-300' : 'text-amber-200'}`}
-                    >
-                      {lastRun.ok ? 'Success' : 'Needs Attention'}
+          ) : (
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.35 }}
+              className="space-y-8"
+            >
+              <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Automation</p>
+                    <h1 className="text-3xl font-semibold tracking-tight text-white">{automation.title}</h1>
+                  </div>
+                  <p className="max-w-3xl text-sm leading-relaxed text-slate-300">{automation.description}</p>
+                  <div className="flex flex-wrap gap-3 text-[11px] uppercase tracking-[0.4em] text-slate-500">
+                    <span className="rounded-full border border-slate-700/60 px-3 py-1 text-slate-400">
+                      Workflow · {automation.code}
                     </span>
-                  </p>
-                  <p>
-                    <span className="text-slate-400">Duration:</span> {formatDuration(lastRun.durationMs)}
-                  </p>
-                  <p>
-                    <span className="text-slate-400">HTTP Status:</span> {lastRun.httpStatus ?? '—'}
-                  </p>
-                  {lastRun.error && (
-                    <p className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-                      {lastRun.error}
-                    </p>
-                  )}
+                    <span className="rounded-full border border-slate-700/60 px-3 py-1 text-slate-400">
+                      Step {automation.sequence.toString().padStart(2, '0')}
+                    </span>
+                  </div>
                 </div>
-              ) : (
-                <p className="text-sm text-slate-400">No runs have been recorded yet.</p>
-              )}
-            </div>
-          </section>
+                <div className="flex flex-col gap-3 text-sm text-slate-300">
+                  <div className="rounded-2xl border border-slate-700/70 bg-slate-900/70 px-4 py-3">
+                    <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Dependencies</p>
+                    <p className="mt-1 text-sm text-slate-200">
+                      {automation.dependencies.length > 0 ? automation.dependencies.length : 'None'}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-700/70 bg-slate-900/70 px-4 py-3">
+                    <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Deliverables</p>
+                    <p className="mt-1 text-sm text-slate-200">
+                      {automation.deliverables.length > 0 ? automation.deliverables.length : 'None'}
+                    </p>
+                  </div>
+                </div>
+              </div>
 
-          <section className="space-y-4 rounded-3xl border border-slate-800 bg-slate-950/60 p-6 shadow-lg shadow-black/30">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">
-                <History className="h-4 w-4" />
-                Run history
-              </h2>
-              {runHistoryLoading && <Loader2 className="h-4 w-4 animate-spin text-slate-500" />}
-            </div>
-            {runHistory.length === 0 ? (
-              <p className="text-sm text-slate-400">No previous activity recorded for this automation.</p>
-            ) : (
-              <div className="space-y-3">
-                {runHistory.map((run) => (
-                  <div
-                    key={`${run.code}-${run.finishedAt}`}
-                    className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 text-sm text-slate-300"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="font-medium text-slate-100">{formatTimestamp(run.finishedAt)}</p>
+              <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1.45fr)_minmax(0,1.1fr)]">
+                <section className="flex flex-col gap-4 rounded-3xl border border-slate-800/70 bg-slate-950/60 p-6 shadow-xl shadow-black/30">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Input</p>
+                      <h2 className="text-lg font-semibold text-white">Trigger payload</h2>
+                    </div>
+                    {runHistoryLoading && <Loader2 className="h-4 w-4 animate-spin text-slate-500" />}
+                  </div>
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-xs leading-relaxed text-slate-300">
+                    {lastRun && lastRun.requestPayload ? (
+                      <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap break-words font-mono text-[11px] text-slate-200">
+                        {typeof lastRun.requestPayload === 'string'
+                          ? lastRun.requestPayload
+                          : JSON.stringify(lastRun.requestPayload, null, 2)}
+                      </pre>
+                    ) : (
+                      <p className="text-sm text-slate-400">No request payload recorded yet.</p>
+                    )}
+                  </div>
+                  <div className="space-y-2 rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-xs text-slate-400">
+                    <p>
+                      <span className="font-semibold text-slate-200">Started:</span> {lastRun ? formatTimestamp(lastRun.startedAt) : '—'}
+                    </p>
+                    <p>
+                      <span className="font-semibold text-slate-200">Webhook:</span>{' '}
+                      {automation.webhookUrl ? (
+                        <span className="break-all font-mono text-[11px] text-rose-200/90">{automation.webhookUrl}</span>
+                      ) : (
+                        'Not configured'
+                      )}
+                    </p>
+                  </div>
+                </section>
+
+                <section className="flex flex-col gap-6 rounded-3xl border border-rose-500/20 bg-slate-950/70 p-6 shadow-xl shadow-black/30">
+                  <div className="flex flex-col gap-4">
+                    <div className="flex flex-wrap items-start justify-between gap-4">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.3em] text-rose-200/70">AI workflow</p>
+                        <h2 className="text-lg font-semibold text-white">{automation.step}</h2>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void handleRunAutomation()}
+                          disabled={runState.status === 'running'}
+                          className="inline-flex items-center gap-2 rounded-full bg-rose-500/20 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-rose-100 shadow-lg shadow-rose-500/20 transition hover:bg-rose-500/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/60 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {runState.status === 'running' ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Play className="h-4 w-4" />
+                          )}
+                          {runState.status === 'running' ? 'Executing…' : 'Execute workflow'}
+                        </button>
+                        {automation.webhookUrl ? (
+                          <a
+                            href={automation.webhookUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-2 rounded-full border border-slate-700/70 bg-slate-900/70 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-slate-300 transition hover:border-rose-400/60 hover:text-rose-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/60"
+                          >
+                            Open webhook
+                          </a>
+                        ) : null}
+                      </div>
+                    </div>
+                    {runState.result ? (
                       <span
-                        className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${
-                          run.ok ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-200'
+                        className={`inline-flex w-fit items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] ${
+                          runState.status === 'success'
+                            ? 'bg-emerald-500/15 text-emerald-300'
+                            : runState.status === 'error'
+                              ? 'bg-amber-500/15 text-amber-200'
+                              : 'bg-slate-800 text-slate-300'
                         }`}
                       >
                         <span className="h-2 w-2 rounded-full bg-current" />
-                        {run.ok ? 'Success' : 'Needs Attention'}
+                        {runState.status === 'running'
+                          ? 'Running'
+                          : runState.status === 'success'
+                            ? 'Success'
+                            : runState.status === 'error'
+                              ? 'Needs attention'
+                              : 'Idle'}
                       </span>
-                    </div>
-                    <p className="mt-2 text-xs text-slate-400">
-                      HTTP {run.httpStatus ?? '—'} · Duration {formatDuration(run.durationMs)} · Started{' '}
-                      {formatTimestamp(run.startedAt)}
-                    </p>
-                    {run.error ? (
-                      <p className="mt-2 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-                        {run.error}
+                    ) : null}
+                    {runFeedback && (
+                      <p
+                        className={`text-xs ${
+                          runFeedback.type === 'success' ? 'text-emerald-300' : 'text-amber-200'
+                        }`}
+                      >
+                        {runFeedback.message}
                       </p>
-                    ) : run.responseBody ? (
-                      <pre className="mt-2 max-h-40 overflow-y-auto rounded-2xl border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300">
-                        {typeof run.responseBody === 'string'
-                          ? run.responseBody
-                          : JSON.stringify(run.responseBody, null, 2)}
-                      </pre>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 border-b border-slate-800/70 pb-2 text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">
+                    {tabItems.map((tab) => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setActiveTab(tab.id)}
+                        className={`rounded-full px-4 py-1 transition ${
+                          activeTab === tab.id
+                            ? 'bg-rose-500/25 text-rose-100 shadow-lg shadow-rose-500/20'
+                            : 'hover:text-rose-200'
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="space-y-4 text-sm leading-relaxed text-slate-300">
+                    {activeTab === 'parameters' ? (
+                      <div className="space-y-4">
+                        <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+                          <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Why it matters</p>
+                          <p className="mt-2 text-sm text-slate-200">{automation.function}</p>
+                        </div>
+                        <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+                          <p className="text-xs uppercase tracking-[0.3em] text-slate-500">OpenAI instructions</p>
+                          {automation.aiAssist ? (
+                            <pre className="mt-3 max-h-52 overflow-y-auto whitespace-pre-wrap break-words font-mono text-[11px] text-slate-200">
+                              {automation.aiAssist}
+                            </pre>
+                          ) : (
+                            <p className="mt-3 text-sm text-slate-400">This node does not include AI assistant guidance yet.</p>
+                          )}
+                        </div>
+                        {automation.deliverables.length > 0 ? (
+                          <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+                            <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Deliverables</p>
+                            <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-200">
+                              {automation.deliverables.map((item) => (
+                                <li key={item}>{item}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
+                        {automation.dependencies.length > 0 ? (
+                          <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+                            <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Dependencies</p>
+                            <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-200">
+                              {automation.dependencies.map((item) => (
+                                <li key={item}>{item}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+
+                    {activeTab === 'settings' ? (
+                      <div className="space-y-4">
+                        <p className="text-sm text-slate-400">
+                          Define when SmartOps should execute this automation automatically. Manual runs are available
+                          even when scheduling is turned off.
+                        </p>
+                        <form onSubmit={handleScheduleSubmit} className="space-y-4">
+                          <label className="flex items-center gap-3 text-sm text-slate-300">
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 rounded border-slate-700 bg-slate-900 text-rose-500 focus:ring-rose-500/60"
+                              checked={schedule.enabled}
+                              onChange={(event) =>
+                                handleScheduleChange({ enabled: event.target.checked })
+                              }
+                              disabled={scheduleLoading || scheduleSaving}
+                            />
+                            Enable automatic runs
+                          </label>
+
+                          <div className="grid gap-4 md:grid-cols-2">
+                            <label className="space-y-2 text-xs uppercase tracking-[0.3em] text-slate-500">
+                              Frequency
+                              <select
+                                className="mt-1 w-full rounded-2xl border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-200 focus:border-rose-500/60 focus:outline-none focus:ring-1 focus:ring-rose-500/40"
+                                value={schedule.frequency}
+                                onChange={(event) =>
+                                  handleScheduleChange({
+                                    frequency: event.target.value as ScheduleFrequency,
+                                  })
+                                }
+                                disabled={!schedule.enabled || scheduleLoading || scheduleSaving}
+                              >
+                                {Object.entries(scheduleFrequencyLabel).map(([value, label]) => (
+                                  <option key={value} value={value} className="bg-slate-950">
+                                    {label}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="space-y-2 text-xs uppercase tracking-[0.3em] text-slate-500">
+                              Time of day
+                              <input
+                                type="time"
+                                value={schedule.timeOfDay}
+                                onChange={(event) =>
+                                  handleScheduleChange({ timeOfDay: sanitizeTime(event.target.value) })
+                                }
+                                className="mt-1 w-full rounded-2xl border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-200 focus:border-rose-500/60 focus:outline-none focus:ring-1 focus:ring-rose-500/40"
+                                disabled={
+                                  !schedule.enabled || scheduleLoading || scheduleSaving || schedule.frequency === 'hourly'
+                                }
+                              />
+                            </label>
+                          </div>
+
+                          {schedule.frequency === 'weekly' && (
+                            <label className="space-y-2 text-xs uppercase tracking-[0.3em] text-slate-500">
+                              Day of week
+                              <select
+                                className="mt-1 w-full rounded-2xl border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-200 focus:border-rose-500/60 focus:outline-none focus:ring-1 focus:ring-rose-500/40"
+                                value={schedule.dayOfWeek}
+                                onChange={(event) =>
+                                  handleScheduleChange({ dayOfWeek: event.target.value.toLowerCase() })
+                                }
+                                disabled={!schedule.enabled || scheduleLoading || scheduleSaving}
+                              >
+                                {dayOptions.map((day) => (
+                                  <option key={day} value={day} className="bg-slate-950">
+                                    {day.charAt(0).toUpperCase() + day.slice(1)}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          )}
+
+                          <div className="space-y-2">
+                            <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Timezone</p>
+                            <p className="rounded-2xl border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-300">
+                              {schedule.timezone}
+                            </p>
+                          </div>
+
+                          {scheduleError && (
+                            <p className="text-xs text-amber-200">{scheduleError}</p>
+                          )}
+                          {scheduleFeedback && (
+                            <p className="text-xs text-emerald-300">{scheduleFeedback}</p>
+                          )}
+
+                          <div className="flex flex-wrap items-center gap-3">
+                            <button
+                              type="submit"
+                              disabled={scheduleSaving || scheduleLoading}
+                              className="inline-flex items-center gap-2 rounded-full bg-rose-500 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-white shadow-lg shadow-rose-500/30 transition hover:bg-rose-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-300 disabled:cursor-not-allowed disabled:bg-rose-500/60"
+                            >
+                              {scheduleSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                              {scheduleSaving ? 'Saving…' : 'Save schedule'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSchedule({ ...savedSchedule });
+                                setScheduleError(null);
+                                setScheduleFeedback(null);
+                              }}
+                              disabled={scheduleSaving || scheduleLoading}
+                              className="inline-flex items-center gap-2 rounded-full border border-slate-700/70 bg-slate-900/70 px-4 py-2 text-xs font-semibold uppercase tracking-[0.3em] text-slate-300 transition hover:border-rose-400/60 hover:text-rose-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/60 disabled:cursor-not-allowed disabled:border-slate-800 disabled:text-slate-600"
+                            >
+                              Reset changes
+                            </button>
+                          </div>
+                        </form>
+                      </div>
+                    ) : null}
+
+                    {activeTab === 'history' ? (
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between text-xs uppercase tracking-[0.3em] text-slate-500">
+                          <span className="inline-flex items-center gap-2"><History className="h-3.5 w-3.5" />Recent runs</span>
+                          {runHistoryLoading && <Loader2 className="h-4 w-4 animate-spin text-slate-500" />}
+                        </div>
+                        {runHistory.length === 0 ? (
+                          <p className="text-sm text-slate-400">No previous activity recorded for this automation.</p>
+                        ) : (
+                          <div className="space-y-3">
+                            {runHistory.map((run) => (
+                              <div
+                                key={`${run.code}-${run.finishedAt}`}
+                                className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-sm text-slate-300"
+                              >
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <p className="font-medium text-slate-100">{formatTimestamp(run.finishedAt)}</p>
+                                  <span
+                                    className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] ${
+                                      run.ok
+                                        ? 'bg-emerald-500/15 text-emerald-300'
+                                        : 'bg-amber-500/15 text-amber-200'
+                                    }`}
+                                  >
+                                    <span className="h-2 w-2 rounded-full bg-current" />
+                                    {run.ok ? 'Success' : 'Needs attention'}
+                                  </span>
+                                </div>
+                                <p className="mt-2 text-xs text-slate-400">
+                                  HTTP {run.httpStatus ?? '—'} · Duration {formatDuration(run.durationMs)} · Started{' '}
+                                  {formatTimestamp(run.startedAt)}
+                                </p>
+                                {run.error ? (
+                                  <p className="mt-2 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                                    {run.error}
+                                  </p>
+                                ) : run.responseBody ? (
+                                  <pre className="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap break-words rounded-2xl border border-slate-800 bg-slate-950/70 p-3 text-xs text-slate-200">
+                                    {typeof run.responseBody === 'string'
+                                      ? run.responseBody
+                                      : JSON.stringify(run.responseBody, null, 2)}
+                                  </pre>
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     ) : null}
                   </div>
-                ))}
+                </section>
+
+                <section className="flex flex-col gap-4 rounded-3xl border border-slate-800/70 bg-slate-950/60 p-6 shadow-xl shadow-black/30">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Output</p>
+                      <h2 className="text-lg font-semibold text-white">Latest response</h2>
+                    </div>
+                    {runState.status === 'running' && <Loader2 className="h-4 w-4 animate-spin text-slate-500" />}
+                  </div>
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-xs text-slate-300">
+                    {lastRun ? (
+                      lastRun.error ? (
+                        <p className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                          {lastRun.error}
+                        </p>
+                      ) : lastRun.responseBody ? (
+                        <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap break-words font-mono text-[11px] text-slate-200">
+                          {typeof lastRun.responseBody === 'string'
+                            ? lastRun.responseBody
+                            : JSON.stringify(lastRun.responseBody, null, 2)}
+                        </pre>
+                      ) : (
+                        <p className="text-sm text-slate-400">The workflow did not return a response body.</p>
+                      )
+                    ) : (
+                      <p className="text-sm text-slate-400">This workflow has not produced an output yet.</p>
+                    )}
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-xs text-slate-400">
+                      <p className="text-[11px] uppercase tracking-[0.3em] text-slate-500">Status</p>
+                      <p
+                        className={`mt-2 text-sm font-semibold ${
+                          lastRun ? (lastRun.ok ? 'text-emerald-300' : 'text-amber-200') : 'text-slate-300'
+                        }`}
+                      >
+                        {lastRun ? (lastRun.ok ? 'Success' : 'Needs attention') : 'Idle'}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-xs text-slate-400">
+                      <p className="text-[11px] uppercase tracking-[0.3em] text-slate-500">HTTP</p>
+                      <p className="mt-2 text-sm text-slate-200">{lastRun ? lastRun.httpStatus ?? '—' : '—'}</p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-xs text-slate-400 sm:col-span-2">
+                      <p className="text-[11px] uppercase tracking-[0.3em] text-slate-500">Duration</p>
+                      <p className="mt-2 text-sm text-slate-200">{lastRun ? formatDuration(lastRun.durationMs) : '—'}</p>
+                    </div>
+                  </div>
+                </section>
               </div>
-            )}
-          </section>
-
-          <section className="space-y-4 rounded-3xl border border-slate-800 bg-slate-950/60 p-6 shadow-lg shadow-black/30">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">
-                <Settings2 className="h-4 w-4" />
-                Schedule settings
-              </h2>
-              {scheduleLoading && <Loader2 className="h-4 w-4 animate-spin text-slate-500" />}
-            </div>
-            <p className="text-sm text-slate-400">
-              Define when SmartOps should execute this automation automatically. Manual runs are always available
-              even when scheduling is turned off.
-            </p>
-            <form onSubmit={handleScheduleSubmit} className="space-y-4">
-              <label className="flex items-center gap-3 text-sm text-slate-300">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 rounded border-slate-700 bg-slate-900 text-red-500 focus:ring-red-500/60"
-                  checked={schedule.enabled}
-                  onChange={(event) =>
-                    handleScheduleChange({ enabled: event.target.checked })
-                  }
-                  disabled={scheduleLoading || scheduleSaving}
-                />
-                Enable automatic runs
-              </label>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <label className="space-y-2 text-xs uppercase tracking-[0.2em] text-slate-500">
-                  Frequency
-                  <select
-                    className="mt-1 w-full rounded-2xl border border-slate-800 bg-slate-950/60 px-3 py-2 text-sm text-slate-200 focus:border-red-500/60 focus:outline-none focus:ring-1 focus:ring-red-500/40"
-                    value={schedule.frequency}
-                    onChange={(event) =>
-                      handleScheduleChange({
-                        frequency: event.target.value as ScheduleFrequency,
-                      })
-                    }
-                    disabled={!schedule.enabled || scheduleLoading || scheduleSaving}
-                  >
-                    {Object.entries(scheduleFrequencyLabel).map(([value, label]) => (
-                      <option key={value} value={value} className="bg-slate-950">
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="space-y-2 text-xs uppercase tracking-[0.2em] text-slate-500">
-                  Time of day
-                  <input
-                    type="time"
-                    value={schedule.timeOfDay}
-                    onChange={(event) =>
-                      handleScheduleChange({ timeOfDay: sanitizeTime(event.target.value) })
-                    }
-                    className="mt-1 w-full rounded-2xl border border-slate-800 bg-slate-950/60 px-3 py-2 text-sm text-slate-200 focus:border-red-500/60 focus:outline-none focus:ring-1 focus:ring-red-500/40"
-                    disabled={
-                      !schedule.enabled || scheduleLoading || scheduleSaving || schedule.frequency === 'hourly'
-                    }
-                  />
-                </label>
-              </div>
-
-              {schedule.frequency === 'weekly' && (
-                <label className="space-y-2 text-xs uppercase tracking-[0.2em] text-slate-500">
-                  Day of week
-                  <select
-                    className="mt-1 w-full rounded-2xl border border-slate-800 bg-slate-950/60 px-3 py-2 text-sm text-slate-200 focus:border-red-500/60 focus:outline-none focus:ring-1 focus:ring-red-500/40"
-                    value={schedule.dayOfWeek}
-                    onChange={(event) =>
-                      handleScheduleChange({ dayOfWeek: event.target.value.toLowerCase() })
-                    }
-                    disabled={!schedule.enabled || scheduleLoading || scheduleSaving}
-                  >
-                    {dayOptions.map((day) => (
-                      <option key={day} value={day} className="bg-slate-950">
-                        {day.charAt(0).toUpperCase() + day.slice(1)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-
-              <div className="space-y-2">
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Timezone</p>
-                <p className="rounded-2xl border border-slate-800 bg-slate-950/60 px-3 py-2 text-sm text-slate-300">
-                  {schedule.timezone}
-                </p>
-              </div>
-
-              {scheduleError && (
-                <p className="text-xs text-amber-200">{scheduleError}</p>
-              )}
-              {scheduleFeedback && (
-                <p className="text-xs text-emerald-300">{scheduleFeedback}</p>
-              )}
-
-              <div className="flex flex-wrap items-center gap-3">
-                <button
-                  type="submit"
-                  disabled={scheduleSaving || scheduleLoading}
-                  className="inline-flex items-center gap-2 rounded-2xl bg-red-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-red-500/30 transition hover:bg-red-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400 disabled:cursor-not-allowed disabled:bg-red-500/50"
-                >
-                  {scheduleSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                  {scheduleSaving ? 'Saving…' : 'Save schedule'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSchedule({ ...savedSchedule });
-                    setScheduleError(null);
-                    setScheduleFeedback(null);
-                  }}
-                  disabled={scheduleSaving || scheduleLoading}
-                  className="inline-flex items-center gap-2 rounded-2xl border border-slate-700 px-4 py-2 text-sm font-medium text-slate-300 transition hover:border-slate-500 hover:text-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-500/60 disabled:cursor-not-allowed disabled:border-slate-800 disabled:text-slate-600"
-                >
-                  Reset changes
-                </button>
-              </div>
-            </form>
-          </section>
-        </motion.div>
-      )}
+            </motion.div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
